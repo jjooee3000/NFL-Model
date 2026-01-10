@@ -1,11 +1,18 @@
 ````markdown
 # NFL Model Workspace
 
-Models v0–v3, analysis scripts, and reports are grouped under `src/`, `data/`, `outputs/`, and `reports/` for easier navigation.
+## 🔄 Model Versioning Policy
+
+**For AI Assistants & Contributors:**
+- Only keep the **current production model** in `src/models/`
+- Archive old versions to `src/models/archive/` when creating new versions
+- See `src/models/README.md` for full versioning guidelines
+
+**Current active model:** v3 (RandomForest with momentum features)
 
 ## Layout
 - Data: [data](data) (place `nfl_2025_model_data_with_moneylines.xlsx` here)
-- Models: [src/models](src/models) ([model_v0.py](src/models/model_v0.py), [model_v1.py](src/models/model_v1.py), [model_v2.py](src/models/model_v2.py), [model_v3.py](src/models/model_v3.py))
+- Models: [src/models](src/models) - **Active:** [model_v3.py](src/models/model_v3.py) | **Archive:** [archive/](src/models/archive/)
 - Scripts: [src/scripts](src/scripts) ([compare_all_versions.py](src/scripts/compare_all_versions.py), [analyze_features.py](src/scripts/analyze_features.py), [analyze_v3_features.py](src/scripts/analyze_v3_features.py), [run_ensemble_oneoff.py](src/scripts/run_ensemble_oneoff.py), [debug_momentum.py](src/scripts/debug_momentum.py), [check_features.py](src/scripts/check_features.py), [inspect_odds_feed.py](src/scripts/inspect_odds_feed.py))
 - Utilities: [src/utils](src/utils) ([paths.py](src/utils/paths.py))
 - Reports: [reports](reports)
