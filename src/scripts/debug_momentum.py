@@ -1,11 +1,21 @@
 """Debug why momentum features aren't being used in model_v2"""
+from pathlib import Path
+import sys
+
 import pandas as pd
 import warnings
+
 warnings.filterwarnings('ignore')
 
-from model_v2 import NFLHybridModelV2
+ROOT = Path(__file__).resolve().parents[2]
+SRC_DIR = ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
-workbook = r"C:\Users\cahil\OneDrive\Desktop\Sports Model\NFL-Model\nfl_2025_model_data_with_moneylines.xlsx"
+from utils.paths import DATA_DIR
+from models.model_v2 import NFLHybridModelV2
+
+workbook = DATA_DIR / "nfl_2025_model_data_with_moneylines.xlsx"
 model = NFLHybridModelV2(workbook_path=workbook, model_type='randomforest')
 
 # Load data

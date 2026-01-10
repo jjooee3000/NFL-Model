@@ -1,14 +1,24 @@
 """Final comparison of all model versions"""
+from pathlib import Path
+import sys
+
 import pandas as pd
 import warnings
+
 warnings.filterwarnings('ignore')
 
-from model_v0 import NFLHybridModel as V0Model
-from model_v1 import NFLHybridModelV1 as V1Model
-from model_v2 import NFLHybridModelV2 as V2Model
-from model_v3 import NFLHybridModelV3 as V3Model
+ROOT = Path(__file__).resolve().parents[2]
+SRC_DIR = ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
-workbook = r"C:\Users\cahil\OneDrive\Desktop\Sports Model\NFL-Model\nfl_2025_model_data_with_moneylines.xlsx"
+from utils.paths import DATA_DIR
+from models.model_v0 import NFLHybridModel as V0Model
+from models.model_v1 import NFLHybridModelV1 as V1Model
+from models.model_v2 import NFLHybridModelV2 as V2Model
+from models.model_v3 import NFLHybridModelV3 as V3Model
+
+workbook = DATA_DIR / "nfl_2025_model_data_with_moneylines.xlsx"
 
 models = {
     'v0': (V0Model(workbook_path=workbook), 'Ridge', 44),

@@ -1,5 +1,14 @@
+from pathlib import Path
+import sys
 import json
-from model_v0 import fetch_market_data_from_odds_api, ensemble_predict_game
+
+ROOT = Path(__file__).resolve().parents[2]
+SRC_DIR = ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from utils.paths import DATA_DIR
+from models.model_v0 import fetch_market_data_from_odds_api, ensemble_predict_game
 
 API_KEY = "e4fe23404e83e54cae3a61eff5772094"
 HOME = "CHI"
@@ -22,7 +31,7 @@ pred, report = ensemble_predict_game(
     method="weighted",
     train_through_week=14,
     as_of_week=19,
-    workbook=r"C:\Users\cahil\OneDrive\Desktop\Sports Model\NFL-Model\nfl_2025_model_data_with_moneylines.xlsx",
+    workbook=DATA_DIR / "nfl_2025_model_data_with_moneylines.xlsx",
 )
 
 out = {"prediction": pred, "ensemble_report": report}

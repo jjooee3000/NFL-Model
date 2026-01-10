@@ -35,6 +35,7 @@ import math
 import json
 import csv
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
 from datetime import datetime, timedelta, timezone
 
@@ -53,6 +54,10 @@ try:
     import joblib
 except Exception as e:  # pragma: no cover
     joblib = None
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_WORKBOOK = PROJECT_ROOT / "data" / "nfl_2025_model_data_with_moneylines.xlsx"
 
 
 def implied_prob(mlv: float) -> float:
@@ -514,16 +519,10 @@ class NFLHybridModelV0:
         # Fundamentals delta features (home - away)
         X_fund = pd.DataFrame(index=gf.index)
         for c in feats:
-<<<<<<< HEAD
-            X_fund[f"delta_{c}_pre{self.window}"] = (
-                gf[f"{c}_pre{self.window}_home"] - gf[f"{c}_pre{self.window}_away"]
-            )
-=======
             X_fund[f"delta_{c}_pre{self.window}"] = gf[f"{c}_pre{self.window}_home"] - gf[f"{c}_pre{self.window}_away"]
             if self.ewm_halflife:
                 ewm_key = f"{c}_ewm{int(self.ewm_halflife)}"
                 X_fund[f"delta_{ewm_key}"] = gf[f"{ewm_key}_home"] - gf[f"{ewm_key}_away"]
->>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
         X_fund["neutral_site"] = gf["neutral_site (0/1)"]
 
         # Market features from odds
@@ -573,11 +572,6 @@ class NFLHybridModelV0:
         y_total_test = gf.loc[test_mask, "total_points"]
         y_win_train = gf.loc[train_mask, "home_win"]
 
-<<<<<<< HEAD
-        ridge_params = {"alpha": 10.0, "random_state": 0}
-        m_margin = Ridge(**ridge_params).fit(X_train, y_margin_train)
-        m_total = Ridge(**ridge_params).fit(X_train, y_total_train)
-=======
         m_margin = self._build_model().fit(X_train, y_margin_train)
         m_total = self._build_model().fit(X_train, y_total_train)
         m_win = None
@@ -588,7 +582,6 @@ class NFLHybridModelV0:
             win_probs = m_win.predict_proba(X_test)[:, 1]
             y_win_test = gf.loc[test_mask, "home_win"].to_numpy()
             win_brier = float(np.mean((win_probs - y_win_test) ** 2))
->>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
 
         # Margin volatility for prob mapping
         sigma = float(y_margin_train.std(ddof=0))
@@ -623,12 +616,8 @@ class NFLHybridModelV0:
             "n_features": X_train.shape[1],
             "margin_MAE_test": float(np.mean(np.abs(y_margin_test - pred_margin))),
             "total_MAE_test": float(np.mean(np.abs(y_total_test - pred_total))),
-<<<<<<< HEAD
-            "sigma_margin_train": sigma,
-=======
             "sigma_margin_train": float(sigma),
             "ridge_alpha": float(self.ridge_alpha),
->>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
         }
         if win_brier is not None:
             report["win_Brier_test"] = win_brier
@@ -725,13 +714,9 @@ class NFLHybridModelV0:
             "close_total": close_total,
             "open_spread_home": np.nan,
             "open_total": np.nan,
-<<<<<<< HEAD
-            "imp_p_home_novig": imp_home_novig,
-=======
             "imp_p_home_novig": float(imp_home_novig),
             "spread_move": np.nan,
             "total_move": np.nan,
->>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
         })
 
         X_row = pd.DataFrame([row])
@@ -744,10 +729,6 @@ class NFLHybridModelV0:
         # Away line convention: away -X means away expected margin ~ +X; line = -X
         pred_spread_away = -pred_margin_home
 
-<<<<<<< HEAD
-        # Coherent win prob from margin (normal approx)
-        p_home = norm_cdf(pred_margin_home / A.sigma_margin)
-=======
         # Coherent win prob from margin (classifier/calibrated if available)
         if A.m_win is not None:
             p_home = float(A.m_win.predict_proba(X_row)[0, 1])
@@ -755,7 +736,6 @@ class NFLHybridModelV0:
             p_home = float(A.win_calibrator.predict_proba([[pred_margin_home]])[0, 1])
         else:
             p_home = float(norm_cdf(pred_margin_home / A.sigma_margin))
->>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
         p_away = 1.0 - p_home
 
         # Market benchmarks
@@ -886,8 +866,7 @@ def main():
     p = argparse.ArgumentParser(
         description="NFL 2025 v0 Hybrid Model: predict spread/total/winprob using fundamentals + closing market inputs."
     )
-<<<<<<< HEAD
-    p.add_argument("--workbook", help="(ignored) Workbook path is fixed in the script")
+    p.add_argument("--workbook", help="Override workbook path (default: data/nfl_2025_model_data_with_moneylines.xlsx)")
     p.add_argument("--home", help="Home team code (e.g., CHI)")
     p.add_argument("--away", help="Away team code (e.g., GNB)")
     p.add_argument("--close_spread_home", type=float, help="Closing spread from HOME perspective (e.g., +1.5 means home is +1.5)")
@@ -895,24 +874,12 @@ def main():
     p.add_argument("--close_ml_home", type=float, help="Closing home moneyline (American odds, e.g., +105)")
     p.add_argument("--close_ml_away", type=float, help="Closing away moneyline (American odds, e.g., -125)")
     p.add_argument("--window", type=int, default=None, help="Rolling window for fundamentals form (default: 8)")
-    p.add_argument("--train_through_week", type=int, default=None, help="Train through week N (default: 14)")
-    p.add_argument("--as_of_week", type=int, default=None, help="Use team form from games with week < as_of_week (default: 19)")
-=======
-    p.add_argument("--workbook", required=True, help="Path to the Excel workbook")
-    p.add_argument("--home", required=True, help="Home team code (e.g., CHI)")
-    p.add_argument("--away", required=True, help="Away team code (e.g., GNB)")
-    p.add_argument("--close_spread_home", required=True, type=float, help="Closing spread from HOME perspective (e.g., +1.5 means home is +1.5)")
-    p.add_argument("--close_total", required=True, type=float, help="Closing total points (e.g., 44.5)")
-    p.add_argument("--close_ml_home", required=True, type=float, help="Closing home moneyline (American odds, e.g., +105)")
-    p.add_argument("--close_ml_away", required=True, type=float, help="Closing away moneyline (American odds, e.g., -125)")
-    p.add_argument("--window", type=int, default=8, help="Rolling window for fundamentals form (default: 8)")
-    p.add_argument("--ewm_halflife", type=int, default=4, help="Half-life for exponential weighting of form (default: 4)")
+    p.add_argument("--ewm_halflife", type=int, default=None, help="Half-life for exponential weighting (set 0 to disable; default: 4)")
     p.add_argument("--model", choices=["ridge", "hgb"], default="ridge", help="Model type (default: ridge)")
-    p.add_argument("--train_through_week", type=int, default=14, help="Train through week N (default: 14)")
+    p.add_argument("--train_through_week", type=int, default=None, help="Train through week N (default: 14)")
     p.add_argument("--ridge_alpha", type=float, default=10.0, help="Ridge alpha (default: 10.0)")
     p.add_argument("--tune_ridge_alpha", action="store_true", help="Tune ridge alpha with rolling backtest")
-    p.add_argument("--as_of_week", type=int, default=19, help="Use team form from games with week < as_of_week (default: 19)")
->>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
+    p.add_argument("--as_of_week", type=int, default=None, help="Use team form from games with week < as_of_week (default: 19)")
     p.add_argument("--save_model", default=None, help="Path to save fitted artifacts (joblib). If provided, the model will be fit and then saved.")
     p.add_argument("--load_model", default=None, help="Path to load fitted artifacts (joblib). If provided, fit() is skipped.")
     p.add_argument("--json", action="store_true", help="Output JSON only (useful for piping)")
@@ -933,18 +900,8 @@ def main():
 
     args = p.parse_args()
 
-<<<<<<< HEAD
     def prompt_val(prompt_text: str, cast=str, default=None):
         """Prompt until a valid value is entered. If default is provided, an empty entry returns the default.
-=======
-    model = NFLHybridModelV0(
-        workbook_path=args.workbook,
-        window=args.window,
-        ewm_halflife=args.ewm_halflife,
-        model_type=args.model,
-        ridge_alpha=args.ridge_alpha,
-    )
->>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
 
         If stdin is not a TTY (non-interactive mode) or --json is set, return default immediately when provided.
         """
@@ -969,29 +926,21 @@ def main():
             except Exception as e:
                 print(f"Invalid value ({e}); try again.")
 
-    # Workbook path is fixed/permanent per user request
-    workbook = r"C:\Users\cahil\OneDrive\Desktop\Sports Model\NFL-Model\nfl_2025_model_data_with_moneylines.xlsx"
-    if args.workbook and args.workbook != workbook:
-        print(f"Ignoring --workbook {args.workbook}; using fixed workbook path: {workbook}")
+    workbook = Path(args.workbook).resolve() if args.workbook else DEFAULT_WORKBOOK
 
-    # Numeric defaults; avoid prompting when running in non-interactive/json mode or scan_upcoming mode
-    if args.window is not None:
-        window = args.window
-    else:
-        window = 8 if (args.json or args.scan_upcoming) else prompt_val("Rolling window for fundamentals form", int, default=8)
+    window = args.window if args.window is not None else (8 if (args.json or args.scan_upcoming) else prompt_val("Rolling window for fundamentals form", int, default=8))
+    ewm_halflife = args.ewm_halflife if args.ewm_halflife is not None else (4 if (args.json or args.scan_upcoming) else 4)
+    ewm_halflife = None if ewm_halflife is not None and ewm_halflife <= 0 else ewm_halflife
+    train_through_week = args.train_through_week if args.train_through_week is not None else (14 if (args.json or args.scan_upcoming) else prompt_val("Train through week", int, default=14))
+    as_of_week = args.as_of_week if args.as_of_week is not None else (19 if (args.json or args.scan_upcoming) else prompt_val("As of week (use games with week < as_of_week)", int, default=19))
 
-    if args.train_through_week is not None:
-        train_through_week = args.train_through_week
-    else:
-        train_through_week = 14 if (args.json or args.scan_upcoming) else prompt_val("Train through week", int, default=14)
-
-    if args.as_of_week is not None:
-        as_of_week = args.as_of_week
-    else:
-        as_of_week = 19 if (args.json or args.scan_upcoming) else prompt_val("As of week (use games with week < as_of_week)", int, default=19)
-
-    # Create model instance with selected window
-    model = NFLHybridModelV0(workbook_path=workbook, window=window)
+    model = NFLHybridModelV0(
+        workbook_path=workbook,
+        window=window,
+        ewm_halflife=ewm_halflife,
+        model_type=args.model,
+        ridge_alpha=args.ridge_alpha,
+    )
 
     # Load or fit
     fit_report = None
@@ -999,15 +948,7 @@ def main():
         model.load_model(args.load_model)
         fit_report = model._fit_report
     else:
-<<<<<<< HEAD
-        fit_report = model.fit(train_through_week=train_through_week)
-        # Optionally save artifacts
-=======
-        fit_report = model.fit(
-            train_through_week=args.train_through_week,
-            tune_ridge_alpha=args.tune_ridge_alpha,
-        )
->>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
+        fit_report = model.fit(train_through_week=train_through_week, tune_ridge_alpha=args.tune_ridge_alpha)
         if args.save_model:
             model.save_model(args.save_model)
         else:

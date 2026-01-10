@@ -2,11 +2,20 @@
 Feature importance analysis for NFL model
 Identifies which of the 234 features drive predictions most
 """
+from pathlib import Path
+import sys
 
 import pandas as pd
 import numpy as np
 import joblib
-from model_v2 import NFLHybridModelV2
+
+ROOT = Path(__file__).resolve().parents[2]
+SRC_DIR = ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from utils.paths import DATA_DIR, OUTPUTS_DIR, ensure_dir
+from models.model_v2 import NFLHybridModelV2
 
 try:
     import matplotlib.pyplot as plt
@@ -15,9 +24,9 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
 def analyze_feature_importance():
-    """Analyze which features matter most in the v2 model"""
-    
-    workbook = r"C:\Users\cahil\OneDrive\Desktop\Sports Model\NFL-Model\nfl_2025_model_data_with_moneylines.xlsx"
+    """Analyze which features matter most in the v2 model."""
+    workbook = DATA_DIR / "nfl_2025_model_data_with_moneylines.xlsx"
+    ensure_dir(OUTPUTS_DIR)
     
     print("=" * 80)
     print("FEATURE IMPORTANCE ANALYSIS - model_v2.py (RandomForest)")
@@ -152,8 +161,9 @@ def analyze_feature_importance():
             ax4.legend()
             
             plt.tight_layout()
-            plt.savefig('feature_importance_analysis.png', dpi=150, bbox_inches='tight')
-            print("\n✓ Saved visualization: feature_importance_analysis.png")
+            fig_path = OUTPUTS_DIR / "feature_importance_analysis.png"
+            plt.savefig(fig_path, dpi=150, bbox_inches='tight')
+            print(f"\n✓ Saved visualization: {fig_path}")
             
         except Exception as e:
             print(f"\nNote: Could not generate plots ({e})")
@@ -161,8 +171,9 @@ def analyze_feature_importance():
         print("\n(matplotlib not available - skipping visualizations)")
     
     # Save detailed analysis to CSV
-    importance_df.to_csv('feature_importance_detailed.csv', index=False)
-    print("✓ Saved detailed analysis: feature_importance_detailed.csv")
+    out_csv = OUTPUTS_DIR / "feature_importance_detailed.csv"
+    importance_df.to_csv(out_csv, index=False)
+    print(f"✓ Saved detailed analysis: {out_csv}")
     
     return importance_df
 

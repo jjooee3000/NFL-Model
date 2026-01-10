@@ -10,6 +10,7 @@ Key improvements over v2:
 
 from typing import Tuple, List, Optional, Dict, Any
 from dataclasses import dataclass, field
+from pathlib import Path
 import numpy as np
 import pandas as pd
 
@@ -24,6 +25,9 @@ except ImportError as e:
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=pd.errors.PerformanceWarning)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_WORKBOOK = PROJECT_ROOT / "data" / "nfl_2025_model_data_with_moneylines.xlsx"
 
 
 def implied_prob(odds: float) -> float:
@@ -434,7 +438,7 @@ if __name__ == "__main__":
     parser.add_argument("--train-week", type=int, default=14, help="Train through week N")
     args = parser.parse_args()
 
-    workbook = r"C:\Users\cahil\OneDrive\Desktop\Sports Model\NFL-Model\nfl_2025_model_data_with_moneylines.xlsx"
+    workbook = DEFAULT_WORKBOOK
 
     model = NFLHybridModelV3(workbook_path=workbook, window=8, model_type=args.model)
 

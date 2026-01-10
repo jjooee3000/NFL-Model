@@ -1,6 +1,17 @@
+from pathlib import Path
+import sys
+
 import pandas as pd
 
-tg = pd.read_excel('nfl_2025_model_data_with_moneylines.xlsx', sheet_name='team_games')
+ROOT = Path(__file__).resolve().parents[2]
+SRC_DIR = ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from utils.paths import DATA_DIR
+
+workbook = DATA_DIR / "nfl_2025_model_data_with_moneylines.xlsx"
+tg = pd.read_excel(workbook, sheet_name='team_games')
 
 # Current candidate features in model_v2
 current = {

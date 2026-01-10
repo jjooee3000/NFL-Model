@@ -1,60 +1,51 @@
-\
-# NFL 2025 v0 Hybrid Model (CLI)
+````markdown
+# NFL Model Workspace
 
-This package contains a single script, `model_v0.py`, which:
-- trains a v0 baseline model on the 2025 regular season (from your Excel workbook), and
-- predicts spread/total/win probabilities for a single matchup using closing market inputs.
+Models v0–v3, analysis scripts, and reports are grouped under `src/`, `data/`, `outputs/`, and `reports/` for easier navigation.
 
-## Prerequisites
+## Layout
+- Data: [data](data) (place `nfl_2025_model_data_with_moneylines.xlsx` here)
+- Models: [src/models](src/models) ([model_v0.py](src/models/model_v0.py), [model_v1.py](src/models/model_v1.py), [model_v2.py](src/models/model_v2.py), [model_v3.py](src/models/model_v3.py))
+- Scripts: [src/scripts](src/scripts) ([compare_all_versions.py](src/scripts/compare_all_versions.py), [analyze_features.py](src/scripts/analyze_features.py), [analyze_v3_features.py](src/scripts/analyze_v3_features.py), [run_ensemble_oneoff.py](src/scripts/run_ensemble_oneoff.py), [debug_momentum.py](src/scripts/debug_momentum.py), [check_features.py](src/scripts/check_features.py), [inspect_odds_feed.py](src/scripts/inspect_odds_feed.py))
+- Utilities: [src/utils](src/utils) ([paths.py](src/utils/paths.py))
+- Reports: [reports](reports)
+- Outputs (generated): [outputs](outputs)
 
-Python 3.10+ recommended.
-
-Install dependencies:
+## Setup
 ```bash
 pip install -r requirements.txt
 ```
 
-## Files you need
+Ensure the workbook is available at [data/nfl_2025_model_data_with_moneylines.xlsx](data/nfl_2025_model_data_with_moneylines.xlsx).
 
-Place your workbook in the same folder (or pass an absolute path):
-- `nfl_2025_model_data_with_moneylines.xlsx`
+## Common Tasks
 
-## Usage
+Run commands from the repository root. Scripts add `src/` to `PYTHONPATH` automatically, so direct invocation works:
 
-### Fit + predict (default)
+1. Compare all model versions (v0–v3):
 ```bash
-python model_v0.py \
-  --workbook nfl_2025_model_data_with_moneylines.xlsx \
-  --home CHI --away GNB \
-  --close_spread_home 1.5 \
-  --close_total 44.5 \
-  --close_ml_home 105 \
-  --close_ml_away -125
+python src/scripts/compare_all_versions.py
 ```
 
-### Fit once and save artifacts
+2. Feature importance (v2 baseline):
 ```bash
-python model_v0.py \
-  --workbook nfl_2025_model_data_with_moneylines.xlsx \
-  --home CHI --away GNB \
-  --close_spread_home 1.5 \
-  --close_total 44.5 \
-  --close_ml_home 105 \
-  --close_ml_away -125 \
-  --save_model artifacts.joblib
+python src/scripts/analyze_features.py
 ```
 
-### Load artifacts and predict (no refit)
+3. Feature importance (v3 with momentum):
 ```bash
-python model_v0.py \
-  --workbook nfl_2025_model_data_with_moneylines.xlsx \
-  --home CHI --away GNB \
-  --close_spread_home 1.5 \
-  --close_total 44.5 \
-  --close_ml_home 105 \
-  --close_ml_away -125 \
-  --load_model artifacts.joblib
+python src/scripts/analyze_v3_features.py
 ```
 
-### JSON output
-Add `--json` to any command.
+4. One-off ensemble prediction (edit HOME/AWAY/API key inside the script or pass via env):
+```bash
+python src/scripts/run_ensemble_oneoff.py
+```
+
+5. Train and predict with a specific model (example v3):
+```bash
+python -m src.models.model_v3 --model randomforest --train-week 14
+```
+
+Generated outputs land in [outputs](outputs) (e.g., feature importance CSVs and plots).
+````

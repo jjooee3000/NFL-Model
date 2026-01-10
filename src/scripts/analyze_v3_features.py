@@ -1,14 +1,25 @@
 """
 Feature importance analysis for model_v3
 """
+from pathlib import Path
+import sys
+
 import pandas as pd
 import numpy as np
 import warnings
+
 warnings.filterwarnings('ignore')
 
-from model_v3 import NFLHybridModelV3
+ROOT = Path(__file__).resolve().parents[2]
+SRC_DIR = ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
-workbook = r"C:\Users\cahil\OneDrive\Desktop\Sports Model\NFL-Model\nfl_2025_model_data_with_moneylines.xlsx"
+from utils.paths import DATA_DIR, OUTPUTS_DIR, ensure_dir
+from models.model_v3 import NFLHybridModelV3
+
+workbook = DATA_DIR / "nfl_2025_model_data_with_moneylines.xlsx"
+ensure_dir(OUTPUTS_DIR)
 model = NFLHybridModelV3(workbook_path=workbook, model_type='randomforest')
 model.fit()
 
@@ -104,5 +115,6 @@ print(f"Total momentum features: {len(momentum_cols)}")
 print(f"Momentum importance: {momentum_cols['importance'].sum():.6f} ({momentum_cols['importance'].sum()/importances.sum()*100:.1f}%)")
 print(f"Status: {'WORKING' if len(momentum_cols) > 50 else 'NOT WORKING - still missing!'}")
 
-importance_df.to_csv('feature_importance_v3.csv', index=False)
-print(f"\nSaved: feature_importance_v3.csv")
+out_csv = OUTPUTS_DIR / "feature_importance_v3.csv"
+importance_df.to_csv(out_csv, index=False)
+print(f"\nSaved: {out_csv}")

@@ -20,6 +20,7 @@ import math
 import json
 import csv
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
 from datetime import datetime, timedelta, timezone
 
@@ -51,6 +52,10 @@ try:
     import joblib
 except Exception:
     joblib = None
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_WORKBOOK = PROJECT_ROOT / "data" / "nfl_2025_model_data_with_moneylines.xlsx"
 
 
 def implied_prob(mlv: float) -> float:
@@ -463,7 +468,7 @@ def main():
 
     args = p.parse_args()
 
-    workbook = r"C:\Users\cahil\OneDrive\Desktop\Sports Model\NFL-Model\nfl_2025_model_data_with_moneylines.xlsx"
+    workbook = DEFAULT_WORKBOOK
 
     window = args.window or 8
     train_through_week = args.train_through_week or 14
