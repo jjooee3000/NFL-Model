@@ -41,6 +41,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge, LogisticRegression
+from sklearn.ensemble import HistGradientBoostingRegressor
 
 # Optional HTTP fetching for market data
 try:
@@ -289,16 +290,31 @@ def norm_cdf(x: float) -> float:
 class ModelArtifacts:
     features: List[str]
     window: int
+    ewm_halflife: Optional[int]
     means: pd.Series
     sigma_margin: float
-    m_margin: Ridge
-    m_total: Ridge
+    model_type: str
+    ridge_alpha: float
+    m_margin: Any
+    m_total: Any
+    m_win: Optional[LogisticRegression]
+    win_calibrator: Optional[LogisticRegression]
 
 
 class NFLHybridModelV0:
-    def __init__(self, workbook_path: str, window: int = 8) -> None:
+    def __init__(
+        self,
+        workbook_path: str,
+        window: int = 8,
+        ewm_halflife: Optional[int] = 4,
+        model_type: str = "ridge",
+        ridge_alpha: float = 10.0,
+    ) -> None:
         self.workbook_path = workbook_path
         self.window = int(window)
+        self.ewm_halflife = ewm_halflife
+        self.model_type = model_type
+        self.ridge_alpha = float(ridge_alpha)
 
         self._artifacts: Optional[ModelArtifacts] = None
         self._tg: Optional[pd.DataFrame] = None
@@ -365,10 +381,108 @@ class NFLHybridModelV0:
             )
         return out
 
+    def _add_ewm_features(self, df: pd.DataFrame, cols: List[str], halflife: int) -> pd.DataFrame:
+        out = df.sort_values(["team","week","game_id"]).copy()
+        for c in cols:
+            shifted = out.groupby("team")[c].shift(1)
+            out[f"{c}_ewm{halflife}"] = (
+                shifted.groupby(out["team"])
+                .transform(lambda s: s.ewm(halflife=halflife, adjust=False).mean())
+            )
+        return out
+
+    def _build_model(self, model_type: Optional[str] = None, ridge_alpha: Optional[float] = None) -> Any:
+        model_type = model_type or self.model_type
+        ridge_alpha = self.ridge_alpha if ridge_alpha is None else ridge_alpha
+        if model_type == "hgb":
+            return HistGradientBoostingRegressor(
+                max_depth=3,
+                learning_rate=0.05,
+                max_iter=400,
+                random_state=0,
+            )
+        return Ridge(alpha=float(ridge_alpha), random_state=0)
+
+    def _add_missing_indicators(self, X: pd.DataFrame) -> pd.DataFrame:
+        missing = X.isna().astype(int)
+        missing.columns = [f"isna_{c}" for c in missing.columns]
+        return pd.concat([X, missing], axis=1)
+
+    def _rolling_backtest(
+        self,
+        gf: pd.DataFrame,
+        X: pd.DataFrame,
+        min_train_weeks: int = 6,
+        ridge_alpha: Optional[float] = None,
+    ) -> Tuple[Dict[str, float], Optional[LogisticRegression]]:
+        weeks = sorted(gf["week"].dropna().unique())
+        if len(weeks) <= min_train_weeks + 1:
+            return {}, None
+
+        preds_margin = []
+        preds_total = []
+        y_margin = []
+        y_total = []
+        y_win = []
+
+        for w in weeks[min_train_weeks:]:
+            train_mask = gf["week"] < w
+            test_mask = gf["week"] == w
+            if not test_mask.any():
+                continue
+
+            X_train = X.loc[train_mask].copy()
+            X_test = X.loc[test_mask].copy()
+            means = X_train.mean(numeric_only=True)
+            X_train = X_train.fillna(means)
+            X_test = X_test.fillna(means)
+
+            m_margin = self._build_model(ridge_alpha=ridge_alpha).fit(X_train, gf.loc[train_mask, "margin_home"])
+            m_total = self._build_model(ridge_alpha=ridge_alpha).fit(X_train, gf.loc[train_mask, "total_points"])
+
+            preds_margin.append(m_margin.predict(X_test))
+            preds_total.append(m_total.predict(X_test))
+            y_margin.append(gf.loc[test_mask, "margin_home"].to_numpy())
+            y_total.append(gf.loc[test_mask, "total_points"].to_numpy())
+            y_win.append(gf.loc[test_mask, "home_win"].to_numpy())
+
+        if not preds_margin:
+            return {}, None
+
+        pred_margin = np.concatenate(preds_margin)
+        pred_total = np.concatenate(preds_total)
+        y_margin_all = np.concatenate(y_margin)
+        y_total_all = np.concatenate(y_total)
+        y_win_all = np.concatenate(y_win)
+
+        report = {
+            "rolling_margin_MAE": float(np.mean(np.abs(y_margin_all - pred_margin))),
+            "rolling_total_MAE": float(np.mean(np.abs(y_total_all - pred_total))),
+            "rolling_games": int(len(y_margin_all)),
+        }
+
+        calibrator = None
+        if len(np.unique(y_win_all)) > 1:
+            calibrator = LogisticRegression(max_iter=2000)
+            calibrator.fit(pred_margin.reshape(-1, 1), y_win_all)
+        return report, calibrator
+
+    def _tune_ridge_alpha(self, gf: pd.DataFrame, X: pd.DataFrame) -> float:
+        candidates = [1.0, 5.0, 10.0, 20.0, 50.0]
+        best_alpha = self.ridge_alpha
+        best_score = float("inf")
+        for alpha in candidates:
+            report, _ = self._rolling_backtest(gf, X, ridge_alpha=alpha)
+            score = report.get("rolling_margin_MAE", float("inf"))
+            if score < best_score:
+                best_score = score
+                best_alpha = alpha
+        return best_alpha
+
     # ----------------------------
     # Fit / Save / Load
     # ----------------------------
-    def fit(self, train_through_week: int = 14) -> Dict[str, float]:
+    def fit(self, train_through_week: int = 14, tune_ridge_alpha: bool = False) -> Dict[str, float]:
         games, team_games, odds = self.load_workbook()
 
         # Targets from games table
@@ -386,6 +500,9 @@ class NFLHybridModelV0:
         feats = self._candidate_features(tg)
         tg_roll = self._add_rolling_features(tg, feats)
         pre_cols = [f"{c}_pre{self.window}" for c in feats]
+        if self.ewm_halflife:
+            tg_roll = self._add_ewm_features(tg_roll, feats, int(self.ewm_halflife))
+            pre_cols += [f"{c}_ewm{int(self.ewm_halflife)}" for c in feats]
 
         home_feat = tg_roll[tg_roll["is_home (0/1)"] == 1][["game_id", "team"] + pre_cols].rename(columns={"team": "home_team"})
         away_feat = tg_roll[tg_roll["is_home (0/1)"] == 0][["game_id", "team"] + pre_cols].rename(columns={"team": "away_team"})
@@ -397,9 +514,16 @@ class NFLHybridModelV0:
         # Fundamentals delta features (home - away)
         X_fund = pd.DataFrame(index=gf.index)
         for c in feats:
+<<<<<<< HEAD
             X_fund[f"delta_{c}_pre{self.window}"] = (
                 gf[f"{c}_pre{self.window}_home"] - gf[f"{c}_pre{self.window}_away"]
             )
+=======
+            X_fund[f"delta_{c}_pre{self.window}"] = gf[f"{c}_pre{self.window}_home"] - gf[f"{c}_pre{self.window}_away"]
+            if self.ewm_halflife:
+                ewm_key = f"{c}_ewm{int(self.ewm_halflife)}"
+                X_fund[f"delta_{ewm_key}"] = gf[f"{ewm_key}_home"] - gf[f"{ewm_key}_away"]
+>>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
         X_fund["neutral_site"] = gf["neutral_site (0/1)"]
 
         # Market features from odds
@@ -420,10 +544,16 @@ class NFLHybridModelV0:
             how="left"
         )
         X_market = gf[["close_spread_home","close_total","open_spread_home","open_total","imp_p_home_novig"]].copy()
+        X_market["spread_move"] = X_market["close_spread_home"] - X_market["open_spread_home"]
+        X_market["total_move"] = X_market["close_total"] - X_market["open_total"]
 
         # Hybrid matrix
         X = pd.concat([X_fund, X_market], axis=1)
+        X = self._add_missing_indicators(X)
         self._X_cols = list(X.columns)
+
+        if tune_ridge_alpha and self.model_type == "ridge":
+            self.ridge_alpha = self._tune_ridge_alpha(gf, X)
 
         # Time-respecting split
         train_week = int(train_through_week)
@@ -443,25 +573,42 @@ class NFLHybridModelV0:
         y_total_test = gf.loc[test_mask, "total_points"]
         y_win_train = gf.loc[train_mask, "home_win"]
 
+<<<<<<< HEAD
         ridge_params = {"alpha": 10.0, "random_state": 0}
         m_margin = Ridge(**ridge_params).fit(X_train, y_margin_train)
         m_total = Ridge(**ridge_params).fit(X_train, y_total_train)
+=======
+        m_margin = self._build_model().fit(X_train, y_margin_train)
+        m_total = self._build_model().fit(X_train, y_total_train)
+        m_win = None
+        win_brier = None
+        if len(np.unique(y_win_train)) > 1:
+            m_win = LogisticRegression(max_iter=4000)
+            m_win.fit(X_train, y_win_train)
+            win_probs = m_win.predict_proba(X_test)[:, 1]
+            y_win_test = gf.loc[test_mask, "home_win"].to_numpy()
+            win_brier = float(np.mean((win_probs - y_win_test) ** 2))
+>>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
 
         # Margin volatility for prob mapping
         sigma = float(y_margin_train.std(ddof=0))
         if not np.isfinite(sigma) or sigma <= 0:
             sigma = 14.0
 
-        # Optional: fit logistic win model (not used for final prob in v0 output)
-        _ = LogisticRegression(max_iter=4000).fit(X_train, y_win_train)
+        rolling_report, calibrator = self._rolling_backtest(gf, X)
 
         self._artifacts = ModelArtifacts(
             features=feats,
             window=self.window,
+            ewm_halflife=self.ewm_halflife,
             means=means,
             sigma_margin=sigma,
+            model_type=self.model_type,
+            ridge_alpha=self.ridge_alpha,
             m_margin=m_margin,
             m_total=m_total,
+            m_win=m_win,
+            win_calibrator=calibrator,
         )
 
         # Store team_games with week for scoring
@@ -476,8 +623,16 @@ class NFLHybridModelV0:
             "n_features": X_train.shape[1],
             "margin_MAE_test": float(np.mean(np.abs(y_margin_test - pred_margin))),
             "total_MAE_test": float(np.mean(np.abs(y_total_test - pred_total))),
+<<<<<<< HEAD
             "sigma_margin_train": sigma,
+=======
+            "sigma_margin_train": float(sigma),
+            "ridge_alpha": float(self.ridge_alpha),
+>>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
         }
+        if win_brier is not None:
+            report["win_Brier_test"] = win_brier
+        report.update(rolling_report)
         self._fit_report = report
         return report
 
@@ -507,6 +662,10 @@ class NFLHybridModelV0:
         self._X_cols = list(payload["X_cols"])
         self._artifacts = payload["artifacts"]
         self._fit_report = payload.get("fit_report")
+        if self._artifacts is not None:
+            self.ewm_halflife = self._artifacts.ewm_halflife
+            self.model_type = self._artifacts.model_type
+            self.ridge_alpha = self._artifacts.ridge_alpha
 
         # For scoring, we still need team_games + weeks from the workbook
         self._tg = self._prepare_team_games_with_week()
@@ -537,12 +696,22 @@ class NFLHybridModelV0:
             hist = tg[(tg["team"] == team_code) & (tg["week"] < as_of_week)].sort_values(["week", "game_id"]).tail(n)
             return hist[A.features].mean(numeric_only=True)
 
+        def last_ewm(team_code: str, halflife: int) -> pd.Series:
+            hist = tg[(tg["team"] == team_code) & (tg["week"] < as_of_week)].sort_values(["week","game_id"])
+            if hist.empty:
+                return pd.Series(dtype=float)
+            return hist[A.features].ewm(halflife=halflife, adjust=False).mean().iloc[-1]
+
         home_m = last_n_means(home_team, A.window)
         away_m = last_n_means(away_team, A.window)
+        home_ewm = last_ewm(home_team, int(A.ewm_halflife)) if A.ewm_halflife else pd.Series(dtype=float)
+        away_ewm = last_ewm(away_team, int(A.ewm_halflife)) if A.ewm_halflife else pd.Series(dtype=float)
 
         row: Dict[str, float] = {}
         for c in A.features:
             row[f"delta_{c}_pre{A.window}"] = float(home_m.get(c, np.nan) - away_m.get(c, np.nan))
+            if A.ewm_halflife:
+                row[f"delta_{c}_ewm{int(A.ewm_halflife)}"] = float(home_ewm.get(c, np.nan) - away_ewm.get(c, np.nan))
         row["neutral_site"] = 0.0
 
         # Market no-vig home probability
@@ -556,10 +725,18 @@ class NFLHybridModelV0:
             "close_total": close_total,
             "open_spread_home": np.nan,
             "open_total": np.nan,
+<<<<<<< HEAD
             "imp_p_home_novig": imp_home_novig,
+=======
+            "imp_p_home_novig": float(imp_home_novig),
+            "spread_move": np.nan,
+            "total_move": np.nan,
+>>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
         })
 
-        X_row = pd.DataFrame([row]).reindex(columns=self._X_cols, fill_value=np.nan).fillna(A.means)
+        X_row = pd.DataFrame([row])
+        X_row = self._add_missing_indicators(X_row)
+        X_row = X_row.reindex(columns=self._X_cols, fill_value=np.nan).fillna(A.means)
 
         pred_margin_home = A.m_margin.predict(X_row)[0]
         pred_total = A.m_total.predict(X_row)[0]
@@ -567,8 +744,18 @@ class NFLHybridModelV0:
         # Away line convention: away -X means away expected margin ~ +X; line = -X
         pred_spread_away = -pred_margin_home
 
+<<<<<<< HEAD
         # Coherent win prob from margin (normal approx)
         p_home = norm_cdf(pred_margin_home / A.sigma_margin)
+=======
+        # Coherent win prob from margin (classifier/calibrated if available)
+        if A.m_win is not None:
+            p_home = float(A.m_win.predict_proba(X_row)[0, 1])
+        elif A.win_calibrator is not None:
+            p_home = float(A.win_calibrator.predict_proba([[pred_margin_home]])[0, 1])
+        else:
+            p_home = float(norm_cdf(pred_margin_home / A.sigma_margin))
+>>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
         p_away = 1.0 - p_home
 
         # Market benchmarks
@@ -699,6 +886,7 @@ def main():
     p = argparse.ArgumentParser(
         description="NFL 2025 v0 Hybrid Model: predict spread/total/winprob using fundamentals + closing market inputs."
     )
+<<<<<<< HEAD
     p.add_argument("--workbook", help="(ignored) Workbook path is fixed in the script")
     p.add_argument("--home", help="Home team code (e.g., CHI)")
     p.add_argument("--away", help="Away team code (e.g., GNB)")
@@ -709,6 +897,22 @@ def main():
     p.add_argument("--window", type=int, default=None, help="Rolling window for fundamentals form (default: 8)")
     p.add_argument("--train_through_week", type=int, default=None, help="Train through week N (default: 14)")
     p.add_argument("--as_of_week", type=int, default=None, help="Use team form from games with week < as_of_week (default: 19)")
+=======
+    p.add_argument("--workbook", required=True, help="Path to the Excel workbook")
+    p.add_argument("--home", required=True, help="Home team code (e.g., CHI)")
+    p.add_argument("--away", required=True, help="Away team code (e.g., GNB)")
+    p.add_argument("--close_spread_home", required=True, type=float, help="Closing spread from HOME perspective (e.g., +1.5 means home is +1.5)")
+    p.add_argument("--close_total", required=True, type=float, help="Closing total points (e.g., 44.5)")
+    p.add_argument("--close_ml_home", required=True, type=float, help="Closing home moneyline (American odds, e.g., +105)")
+    p.add_argument("--close_ml_away", required=True, type=float, help="Closing away moneyline (American odds, e.g., -125)")
+    p.add_argument("--window", type=int, default=8, help="Rolling window for fundamentals form (default: 8)")
+    p.add_argument("--ewm_halflife", type=int, default=4, help="Half-life for exponential weighting of form (default: 4)")
+    p.add_argument("--model", choices=["ridge", "hgb"], default="ridge", help="Model type (default: ridge)")
+    p.add_argument("--train_through_week", type=int, default=14, help="Train through week N (default: 14)")
+    p.add_argument("--ridge_alpha", type=float, default=10.0, help="Ridge alpha (default: 10.0)")
+    p.add_argument("--tune_ridge_alpha", action="store_true", help="Tune ridge alpha with rolling backtest")
+    p.add_argument("--as_of_week", type=int, default=19, help="Use team form from games with week < as_of_week (default: 19)")
+>>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
     p.add_argument("--save_model", default=None, help="Path to save fitted artifacts (joblib). If provided, the model will be fit and then saved.")
     p.add_argument("--load_model", default=None, help="Path to load fitted artifacts (joblib). If provided, fit() is skipped.")
     p.add_argument("--json", action="store_true", help="Output JSON only (useful for piping)")
@@ -729,8 +933,18 @@ def main():
 
     args = p.parse_args()
 
+<<<<<<< HEAD
     def prompt_val(prompt_text: str, cast=str, default=None):
         """Prompt until a valid value is entered. If default is provided, an empty entry returns the default.
+=======
+    model = NFLHybridModelV0(
+        workbook_path=args.workbook,
+        window=args.window,
+        ewm_halflife=args.ewm_halflife,
+        model_type=args.model,
+        ridge_alpha=args.ridge_alpha,
+    )
+>>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
 
         If stdin is not a TTY (non-interactive mode) or --json is set, return default immediately when provided.
         """
@@ -785,8 +999,15 @@ def main():
         model.load_model(args.load_model)
         fit_report = model._fit_report
     else:
+<<<<<<< HEAD
         fit_report = model.fit(train_through_week=train_through_week)
         # Optionally save artifacts
+=======
+        fit_report = model.fit(
+            train_through_week=args.train_through_week,
+            tune_ridge_alpha=args.tune_ridge_alpha,
+        )
+>>>>>>> 835656e9cf6eb876e577d8ca70b0e7724ceb6523
         if args.save_model:
             model.save_model(args.save_model)
         else:
