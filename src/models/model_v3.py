@@ -72,6 +72,33 @@ class NFLHybridModelV3:
         self._fit_report: Optional[Dict[str, Any]] = None
 
     def load_workbook(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """Load data from SQLite (primary, full history) or Excel (fallback, 2025 only)."""
+        import sqlite3
+        
+        db_path = PROJECT_ROOT / "data" / "nfl_model.db"
+        
+        # Try SQLite first (has 2020-2025)
+        if db_path.exists():
+            try:
+                conn = sqlite3.connect(db_path)
+                games = pd.read_sql_query("SELECT * FROM games", conn)
+                team_games = pd.read_sql_query("SELECT * FROM team_games", conn)
+                odds = pd.read_sql_query("SELECT * FROM odds", conn)
+                conn.close()
+                
+                # Ensure required columns exist
+                required_games = {"game_id", "week", "home_team", "away_team", "home_score", "away_score"}
+                required_team_games = {"game_id", "team", "week"}
+                if required_games.issubset(set(games.columns)) and required_team_games.issubset(set(team_games.columns)):
+                    # SQLite has 2020-2025; Excel has only 2025
+                    # Check if we have historical data (more than 300 games = more than current season)
+                    if len(games) > 300:
+                        # Use full historical data from SQLite
+                        return games, team_games, odds
+            except Exception as e:
+                print(f"SQLite load failed ({e}), falling back to Excel")
+        
+        # Fallback to Excel (2025 current season only)
         games = pd.read_excel(self.workbook_path, sheet_name="games")
         team_games = pd.read_excel(self.workbook_path, sheet_name="team_games")
         odds = pd.read_excel(self.workbook_path, sheet_name="odds")

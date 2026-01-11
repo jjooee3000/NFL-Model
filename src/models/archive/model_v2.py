@@ -350,6 +350,11 @@ class NFLHybridModelV2:
         X = pd.concat([X_fund, X_market], axis=1)
         self._X_cols = list(X.columns)
 
+        # Filter out games without outcomes to avoid NaNs in targets
+        has_outcome = gf["margin_home"].notna() & gf["total_points"].notna()
+        gf = gf[has_outcome].copy()
+        X = X[has_outcome].copy()
+
         train_week = int(train_through_week)
         train_mask = gf["week"] <= train_week
         test_mask = gf["week"] >= train_week + 1

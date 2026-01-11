@@ -31,7 +31,7 @@ class FitReport:
 
 class NFLModelV4:
     def __init__(self, workbook_path: Path = DEFAULT_WORKBOOK, model_type: str = "randomforest", sqlite_path: Optional[Path] = None) -> None:
-        self.workbook_path = Path(workbook_path)
+        self.workbook_path = Path(workbook_path) if workbook_path else DEFAULT_WORKBOOK
         self.sqlite_path = Path(sqlite_path) if sqlite_path else None
         self.model_type = model_type
         self._fit_report: Dict[str, Any] | None = None
@@ -41,11 +41,23 @@ class NFLModelV4:
             import sqlite3
             conn = sqlite3.connect(self.sqlite_path)
             games = pd.read_sql_query("SELECT * FROM games", conn)
-            # Prefer pfr_team_stats_historical if present; else pfr_team_stats
+            # Load both offensive and defensive stats
             try:
-                team_stats = pd.read_sql_query("SELECT * FROM pfr_team_stats_historical", conn)
+                team_stats_off = pd.read_sql_query("SELECT * FROM pfr_team_stats_historical", conn)
             except Exception:
-                team_stats = pd.read_sql_query("SELECT * FROM pfr_team_stats", conn)
+                team_stats_off = pd.read_sql_query("SELECT * FROM pfr_team_stats", conn)
+            
+            try:
+                team_stats_def = pd.read_sql_query("SELECT * FROM pfr_team_defense", conn)
+            except Exception:
+                team_stats_def = pd.DataFrame()
+            
+            # Merge offense and defense stats
+            if not team_stats_def.empty:
+                team_stats = team_stats_off.merge(team_stats_def, on=["team", "season"], how="outer")
+            else:
+                team_stats = team_stats_off
+            
             # Team gamelogs for momentum features
             try:
                 gamelogs = pd.read_sql_query("SELECT * FROM pfr_team_gamelogs", conn)
@@ -94,32 +106,41 @@ class NFLModelV4:
             if c not in games.columns:
                 raise ValueError(f"games sheet missing required column: {c}")
         
-        # Merge team-season stats
-        s_home = stats.rename(columns={col: f"home_{col}" for col in stats.columns if col not in ["team", "season"]})
-        s_away = stats.rename(columns={col: f"away_{col}" for col in stats.columns if col not in ["team", "season"]})
-        
         df = games.copy()
-        df = df.merge(stats, left_on=["home_team", "season"], right_on=["team", "season"], how="left")
-        df = df.merge(stats, left_on=["away_team", "season"], right_on=["team", "season"], how="left", suffixes=("_home","_away"))
+        
+        # Rename stats columns to distinguish home vs away
+        # Select all columns except "team" and "season" for prefixing
+        stat_cols_to_prefix = [c for c in stats.columns if c not in ["team", "season"]]
+        
+        # Merge home team stats
+        stats_home = stats[["team", "season"] + stat_cols_to_prefix].copy()
+        stats_home.columns = ["team", "season"] + [f"home_{c}" for c in stat_cols_to_prefix]
+        df = df.merge(stats_home, left_on=["home_team", "season"], right_on=["team", "season"], how="left")
+        df = df.drop(columns=["team"], errors="ignore")
+        
+        # Merge away team stats
+        stats_away = stats[["team", "season"] + stat_cols_to_prefix].copy()
+        stats_away.columns = ["team", "season"] + [f"away_{c}" for c in stat_cols_to_prefix]
+        df = df.merge(stats_away, left_on=["away_team", "season"], right_on=["team", "season"], how="left")
+        df = df.drop(columns=["team"], errors="ignore")
         
         # Prepare targets aligned to df index
         margin = pd.to_numeric(df["home_score"], errors="coerce") - pd.to_numeric(df["away_score"], errors="coerce")
         total = pd.to_numeric(df["home_score"], errors="coerce") + pd.to_numeric(df["away_score"], errors="coerce")
         
-        # Build differential features for numeric columns
-        home_cols = [c for c in df.columns if c.endswith("_home")]
-        away_cols = [c for c in df.columns if c.endswith("_away")]
-        # Align pairs by base column name
+        # Build differential features for all stat columns
         diff_features: List[str] = []
-        for hc in home_cols:
-            base = hc[:-5]  # remove _home
-            ac = base + "_away"
-            if ac in df.columns:
-                diff = pd.to_numeric(df[hc], errors="coerce") - pd.to_numeric(df[ac], errors="coerce")
-                df[f"diff_{base}"] = diff
-                diff_features.append(f"diff_{base}")
         
-        # Feature matrix
+        for stat_col in stat_cols_to_prefix:
+            hc = f"home_{stat_col}"
+            ac = f"away_{stat_col}"
+            if hc in df.columns and ac in df.columns:
+                h_val = pd.to_numeric(df[hc], errors="coerce")
+                a_val = pd.to_numeric(df[ac], errors="coerce")
+                diff = h_val - a_val
+                df[f"diff_{stat_col}"] = diff
+                diff_features.append(f"diff_{stat_col}")
+        
         # Momentum features from team gamelogs
         if not gamelogs.empty and {"team", "season", "week"}.issubset(set(gamelogs.columns)):
             gl = gamelogs.copy()
@@ -138,13 +159,14 @@ class NFLModelV4:
             df = df.merge(gl_feat.add_prefix("home_"), left_on=["home_team", "season", "week"], right_on=["home_team", "home_season", "home_week"], how="left")
             df = df.merge(gl_feat.add_prefix("away_"), left_on=["away_team", "season", "week"], right_on=["away_team", "away_season", "away_week"], how="left")
             # Build diffs for momentum features
-            home_m_cols = [c for c in df.columns if c.startswith("home_r")]
-            for hc in home_m_cols:
-                base = hc.replace("home_", "")
-                ac = "away_" + base
-                if ac in df.columns:
-                    df[f"diff_{base}"] = pd.to_numeric(df[hc], errors="coerce") - pd.to_numeric(df[ac], errors="coerce")
-                    diff_features.append(f"diff_{base}")
+            for c in base_cols:
+                for win in [4, 8]:
+                    r_col = f"r{win}_{c}"
+                    hc = f"home_{r_col}"
+                    ac = f"away_{r_col}"
+                    if hc in df.columns and ac in df.columns:
+                        df[f"diff_{r_col}"] = pd.to_numeric(df[hc], errors="coerce") - pd.to_numeric(df[ac], errors="coerce")
+                        diff_features.append(f"diff_{r_col}")
 
         X = df[diff_features].fillna(0.0)
         return X, margin, total

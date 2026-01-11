@@ -16,7 +16,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 SRC_DIR = ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
@@ -41,19 +41,19 @@ def train_v3_without_weather(workbook_path: str, train_through_week: int, outdoo
     
     # Temporarily patch the _candidate_features method to exclude weather
     original_method = V3Model._candidate_features
-    original_load_v2 = V2Model.load_workbook
+    original_load_v3 = V3Model.load_workbook
     
     # Apply outdoor-only filtering if requested
     if outdoor_only:
-        def load_workbook_outdoor_v2(self):
-            games, team_games, odds = original_load_v2(self)
+        def load_workbook_outdoor_v3(self):
+            games, team_games, odds = original_load_v3(self)
             if "is_indoor" in games.columns:
                 games = games[games["is_indoor"] == 0].copy()
                 team_games = team_games[team_games["game_id"].isin(games["game_id"])].copy()
                 if "game_id" in odds.columns:
                     odds = odds[odds["game_id"].isin(games["game_id"])].copy()
             return games, team_games, odds
-        V2Model.load_workbook = load_workbook_outdoor_v2
+        V3Model.load_workbook = load_workbook_outdoor_v3
     
     def _candidate_features_no_weather(team_games: pd.DataFrame) -> list:
         candidates = [
@@ -91,10 +91,13 @@ def train_v3_without_weather(workbook_path: str, train_through_week: int, outdoo
         model = V3Model(workbook_path=workbook_path, window=8, model_type="randomforest")
         report = model.fit(train_through_week=train_through_week)
     finally:
-        # Restore original methods
-        V3Model._candidate_features = original_method
+        # Restore original methods (ensure staticmethod wrapper)
+        try:
+            V3Model._candidate_features = staticmethod(original_method)
+        except Exception:
+            V3Model._candidate_features = original_method
         if outdoor_only:
-            V2Model.load_workbook = original_load_v2
+            V3Model.load_workbook = original_load_v3
     
     return report
 
@@ -117,24 +120,45 @@ def main() -> None:
 
     variants = []
 
+    def fmt_mae(v) -> str:
+        try:
+            v = float(v)
+            return f"{v:.3f}" if v == v else "N/A"
+        except Exception:
+            return "N/A"
+
     # v2 baseline (no weather, momentum bug)
     print("Training v2 (baseline - no weather, momentum bug)...")
+    # Apply outdoor-only filtering for v2 if requested
+    original_load_v2 = V2Model.load_workbook
+    if args.outdoor_only:
+        def load_workbook_outdoor_v2(self):
+            games, team_games, odds = original_load_v2(self)
+            if "is_indoor" in games.columns:
+                games = games[games["is_indoor"] == 0].copy()
+                team_games = team_games[team_games["game_id"].isin(games["game_id"])].copy()
+                if "game_id" in odds.columns:
+                    odds = odds[odds["game_id"].isin(games["game_id"])].copy()
+            return games, team_games, odds
+        V2Model.load_workbook = load_workbook_outdoor_v2
     v2 = V2Model(workbook_path=str(workbook), window=8, model_type="randomforest")
     start = time.perf_counter()
     v2_report = v2.fit(train_through_week=args.train_week)
     v2_time = time.perf_counter() - start
+    if args.outdoor_only:
+        V2Model.load_workbook = original_load_v2
     variants.append(("v2_baseline", v2_report, v2_time, v2_report.get("n_features", 0), False))
-    print(f"  Margin MAE: {v2_report['margin_MAE_test']:.3f}, Total MAE: {v2_report['total_MAE_test']:.3f}\n")
+    print(f"  Margin MAE: {fmt_mae(v2_report['margin_MAE_test'])}, Total MAE: {fmt_mae(v2_report['total_MAE_test'])}\n")
 
     # v3 without weather (fixed momentum, no weather)
     print("Training v3 WITHOUT weather (fixed momentum, no weather)...")
     start = time.perf_counter()
-    v3_no_weather_report = train_v3_without_weather(str(workbook), args.train_week)
+    v3_no_weather_report = train_v3_without_weather(str(workbook), args.train_week, outdoor_only=args.outdoor_only)
     v3_no_weather_time = time.perf_counter() - start
     variants.append(("v3_no_weather", v3_no_weather_report, v3_no_weather_time, 
                     v3_no_weather_report.get("n_features", 0), False))
-    print(f"  Margin MAE: {v3_no_weather_report['margin_MAE_test']:.3f}, "
-          f"Total MAE: {v3_no_weather_report['total_MAE_test']:.3f}\n")
+    print(f"  Margin MAE: {fmt_mae(v3_no_weather_report['margin_MAE_test'])}, "
+          f"Total MAE: {fmt_mae(v3_no_weather_report['total_MAE_test'])}\n")
 
     # v3 with weather (full feature set)
     print("Training v3 WITH weather (fixed momentum + weather)...")
@@ -158,30 +182,30 @@ def main() -> None:
     if args.outdoor_only:
         V3Model.load_workbook = original_load_v3
     variants.append(("v3_with_weather", v3_report, v3_time, v3_report.get("n_features", 0), True))
-    print(f"  Margin MAE: {v3_report['margin_MAE_test']:.3f}, Total MAE: {v3_report['total_MAE_test']:.3f}\n")
+    print(f"  Margin MAE: {fmt_mae(v3_report['margin_MAE_test'])}, Total MAE: {fmt_mae(v3_report['total_MAE_test'])}\n")
 
     # Calculate improvements
-    v2_margin = float(v2_report["margin_MAE_test"])
-    v2_total = float(v2_report["total_MAE_test"])
-    v3_no_wx_margin = float(v3_no_weather_report["margin_MAE_test"])
-    v3_no_wx_total = float(v3_no_weather_report["total_MAE_test"])
-    v3_wx_margin = float(v3_report["margin_MAE_test"])
-    v3_wx_total = float(v3_report["total_MAE_test"])
+    v2_margin = v2_report["margin_MAE_test"]
+    v2_total = v2_report["total_MAE_test"]
+    v3_no_wx_margin = v3_no_weather_report["margin_MAE_test"]
+    v3_no_wx_total = v3_no_weather_report["total_MAE_test"]
+    v3_wx_margin = v3_report["margin_MAE_test"]
+    v3_wx_total = v3_report["total_MAE_test"]
 
     print("="*80)
     print("RESULTS SUMMARY")
     print("="*80)
     
     print("\n📊 Margin (Spread) Prediction MAE:")
-    print(f"  v2 baseline:          {v2_margin:.3f}")
-    print(f"  v3 no weather:        {v3_no_wx_margin:.3f} ({fmt_improve(v2_margin, v3_no_wx_margin):+.1f}% vs v2)")
-    print(f"  v3 with weather:      {v3_wx_margin:.3f} ({fmt_improve(v2_margin, v3_wx_margin):+.1f}% vs v2)")
+    print(f"  v2 baseline:          {fmt_mae(v2_margin)}")
+    print(f"  v3 no weather:        {fmt_mae(v3_no_wx_margin)} ({fmt_improve(v2_margin, v3_no_wx_margin):+.1f}% vs v2)")
+    print(f"  v3 with weather:      {fmt_mae(v3_wx_margin)} ({fmt_improve(v2_margin, v3_wx_margin):+.1f}% vs v2)")
     print(f"  Weather impact:       {fmt_improve(v3_no_wx_margin, v3_wx_margin):+.1f}%")
 
     print("\n📊 Total Points Prediction MAE:")
-    print(f"  v2 baseline:          {v2_total:.3f}")
-    print(f"  v3 no weather:        {v3_no_wx_total:.3f} ({fmt_improve(v2_total, v3_no_wx_total):+.1f}% vs v2)")
-    print(f"  v3 with weather:      {v3_wx_total:.3f} ({fmt_improve(v2_total, v3_wx_total):+.1f}% vs v2)")
+    print(f"  v2 baseline:          {fmt_mae(v2_total)}")
+    print(f"  v3 no weather:        {fmt_mae(v3_no_wx_total)} ({fmt_improve(v2_total, v3_no_wx_total):+.1f}% vs v2)")
+    print(f"  v3 with weather:      {fmt_mae(v3_wx_total)} ({fmt_improve(v2_total, v3_wx_total):+.1f}% vs v2)")
     print(f"  Weather impact:       {fmt_improve(v3_no_wx_total, v3_wx_total):+.1f}%")
 
     print("\n⚙️ Model Complexity:")
@@ -213,18 +237,18 @@ def main() -> None:
         f.write("### Margin (Spread) Prediction\n\n")
         f.write("| Model | MAE | vs v2 | vs v3 no-weather |\n")
         f.write("|-------|-----|-------|------------------|\n")
-        f.write(f"| v2 baseline | {v2_margin:.3f} | - | - |\n")
-        f.write(f"| v3 no weather | {v3_no_wx_margin:.3f} | {fmt_improve(v2_margin, v3_no_wx_margin):+.1f}% | - |\n")
-        f.write(f"| v3 with weather | {v3_wx_margin:.3f} | {fmt_improve(v2_margin, v3_wx_margin):+.1f}% | "
-                f"{fmt_improve(v3_no_wx_margin, v3_wx_margin):+.1f}% |\n\n")
+        f.write(f"| v2 baseline | {fmt_mae(v2_margin)} | - | - |\n")
+        f.write(f"| v3 no weather | {fmt_mae(v3_no_wx_margin)} | {fmt_improve(v2_margin, v3_no_wx_margin):+.1f}% | - |\n")
+        f.write(f"| v3 with weather | {fmt_mae(v3_wx_margin)} | {fmt_improve(v2_margin, v3_wx_margin):+.1f}% | "
+            f"{fmt_improve(v3_no_wx_margin, v3_wx_margin):+.1f}% |\n\n")
         
         f.write("### Total Points Prediction\n\n")
         f.write("| Model | MAE | vs v2 | vs v3 no-weather |\n")
         f.write("|-------|-----|-------|------------------|\n")
-        f.write(f"| v2 baseline | {v2_total:.3f} | - | - |\n")
-        f.write(f"| v3 no weather | {v3_no_wx_total:.3f} | {fmt_improve(v2_total, v3_no_wx_total):+.1f}% | - |\n")
-        f.write(f"| v3 with weather | {v3_wx_total:.3f} | {fmt_improve(v2_total, v3_wx_total):+.1f}% | "
-                f"{fmt_improve(v3_no_wx_total, v3_wx_total):+.1f}% |\n\n")
+        f.write(f"| v2 baseline | {fmt_mae(v2_total)} | - | - |\n")
+        f.write(f"| v3 no weather | {fmt_mae(v3_no_wx_total)} | {fmt_improve(v2_total, v3_no_wx_total):+.1f}% | - |\n")
+        f.write(f"| v3 with weather | {fmt_mae(v3_wx_total)} | {fmt_improve(v2_total, v3_wx_total):+.1f}% | "
+            f"{fmt_improve(v3_no_wx_total, v3_wx_total):+.1f}% |\n\n")
         
         f.write("## Interpretation\n\n")
         f.write("**MAE (Mean Absolute Error)** measures average prediction error in points:\n")
