@@ -13,22 +13,25 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from utils.paths import DATA_DIR
-from models.model_v0 import NFLHybridModel as V0Model
+from models.model_v0 import NFLHybridModelV0 as V0Model
 from models.model_v1 import NFLHybridModelV1 as V1Model
 from models.model_v2 import NFLHybridModelV2 as V2Model
 from models.model_v3 import NFLHybridModelV3 as V3Model
+from models.model_v4 import NFLModelV4 as V4Model
 
 workbook = DATA_DIR / "nfl_2025_model_data_with_moneylines.xlsx"
+hist_workbook = DATA_DIR / "nfl_model_data_historical_integrated.xlsx"
 
 models = {
     'v0': (V0Model(workbook_path=workbook), 'Ridge', 44),
     'v1': (V1Model(workbook_path=workbook, model_type='randomforest'), 'RandomForest', 44),
     'v2': (V2Model(workbook_path=workbook, model_type='randomforest'), 'RandomForest', 234),
     'v3': (V3Model(workbook_path=workbook, model_type='randomforest'), 'RandomForest', 246),
+    'v4': (V4Model(workbook_path=hist_workbook, model_type='randomforest'), 'RandomForest', 300),
 }
 
 print('\n' + '='*100)
-print('FINAL COMPARISON: v0 vs v1 vs v2 vs v3')
+print('FINAL COMPARISON: v0 vs v1 vs v2 vs v3 vs v4')
 print('='*100 + '\n')
 
 results = []

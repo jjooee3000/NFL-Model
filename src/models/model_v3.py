@@ -377,21 +377,29 @@ class NFLHybridModelV3:
         # v3 FIX: Store the actual feature column names, not just base feature names
         self._X_cols = list(X.columns)
 
-        train_week = int(train_through_week)
-        train_mask = gf["week"] <= train_week
-        test_mask = gf["week"] >= train_week + 1
+        # Filter out games without outcomes (NaN scores) - these are prediction targets
+        has_outcome = gf["margin_home"].notna() & gf["total_points"].notna()
+        gf_complete = gf[has_outcome].copy()
+        X_complete = X[has_outcome].copy()
 
-        X_train = X.loc[train_mask].copy()
-        X_test = X.loc[test_mask].copy()
+        train_week = int(train_through_week)
+        train_mask = gf_complete["week"] <= train_week
+        test_mask = gf_complete["week"] >= train_week + 1
+
+        X_train = X_complete.loc[train_mask].copy()
+        X_test = X_complete.loc[test_mask].copy()
 
         means = X_train.mean(numeric_only=True)
         X_train.fillna(means, inplace=True)
         X_test.fillna(means, inplace=True)
 
-        y_margin_train = gf.loc[train_mask, "margin_home"]
-        y_margin_test = gf.loc[test_mask, "margin_home"]
-        y_total_train = gf.loc[train_mask, "total_points"]
-        y_total_test = gf.loc[test_mask, "total_points"]
+        y_margin_train = gf_complete.loc[train_mask, "margin_home"]
+        y_margin_test = gf_complete.loc[test_mask, "margin_home"]
+        y_total_train = gf_complete.loc[train_mask, "total_points"]
+        y_total_test = gf_complete.loc[test_mask, "total_points"]
+        
+        # Handle case where there's no test data (all games used for training)
+        has_test_data = len(X_test) > 0
 
         sigma = float(y_margin_train.std(ddof=0))
         if not np.isfinite(sigma) or sigma <= 0:
@@ -462,13 +470,18 @@ class NFLHybridModelV3:
         )
 
         self._tg = tg_momentum
-
-        pred_margin = m_margin.predict(X_test_scaled)
-        pred_total = m_total.predict(X_test_scaled)
+        
+        # Only compute test predictions if we have test data
+        if has_test_data:
+            pred_margin = m_margin.predict(X_test_scaled)
+            pred_total = m_total.predict(X_test_scaled)
+        else:
+            pred_margin = np.array([])
+            pred_total = np.array([])
 
         predictions_df = None
-        if return_predictions:
-            preds = gf.loc[test_mask, ["game_id", "week", "home_team", "away_team"]].copy()
+        if return_predictions and has_test_data:
+            preds = gf_complete.loc[test_mask, ["game_id", "week", "home_team", "away_team"]].copy()
             preds = preds.reset_index(drop=True)
             preds["pred_margin_home"] = pred_margin
             preds["pred_total_points"] = pred_total
@@ -483,10 +496,10 @@ class NFLHybridModelV3:
 
         report = {
             "n_train_games": int(train_mask.sum()),
-            "n_test_games": int(test_mask.sum()),
+            "n_test_games": int(test_mask.sum()) if has_test_data else 0,
             "n_features": X_train.shape[1],
-            "margin_MAE_test": float(np.mean(np.abs(y_margin_test - pred_margin))),
-            "total_MAE_test": float(np.mean(np.abs(y_total_test - pred_total))),
+            "margin_MAE_test": float(np.mean(np.abs(y_margin_test - pred_margin))) if has_test_data else None,
+            "total_MAE_test": float(np.mean(np.abs(y_total_test - pred_total))) if has_test_data else None,
             "sigma_margin_train": sigma,
             "model_type": self.model_type,
         }

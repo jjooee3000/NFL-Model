@@ -1,0 +1,52 @@
+{
+  "completed_years": [
+    2020,
+    2021,
+    2022,
+    2023,
+    2024
+  ],
+  "last_update": "2026-01-10T22:44:43.271347",
+  "data_types_completed": {
+    "2020": [
+      "team_stats",
+      "team_defense",
+      "games",
+      "team_game_logs",
+      "advanced_stats",
+      "situational_stats"
+    ],
+    "2021": [
+      "team_stats",
+      "team_defense",
+      "games",
+      "team_game_logs",
+      "advanced_stats",
+      "situational_stats"
+    ],
+    "2022": [
+      "team_stats",
+      "team_defense",
+      "games",
+      "team_game_logs",
+      "advanced_stats",
+      "situational_stats"
+    ],
+    "2023": [
+      "team_stats",
+      "team_defense",
+      "games",
+      "team_game_logs",
+      "advanced_stats",
+      "situational_stats"
+    ],
+    "2024": [
+      "team_stats",
+      "team_defense",
+      "games",
+      "team_game_logs",
+      "advanced_stats",
+      "situational_stats"
+    ]
+  }
+}
