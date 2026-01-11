@@ -55,4 +55,18 @@ python -m src.models.model_v3 --model randomforest --train-week 14
 ```
 
 Generated outputs land in [outputs](outputs) (e.g., feature importance CSVs and plots).
+
+## Diagnostics
+Quick project health check (env, data, v3 fit):
+```bash
+python src/scripts/diagnostics.py
+```
+Writes a summary to [outputs/diagnostics.txt](outputs/diagnostics.txt).
+
+## Archiving Old Models
+To keep `src/models/` focused on the active version, use the archiver to move v0–v2 into `src/models/archive/`:
+```bash
+python archive_old_models.py
+```
+Note: If you run comparisons after archiving, update imports or restore models temporarily.
 ````

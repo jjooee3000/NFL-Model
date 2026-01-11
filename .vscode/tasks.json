@@ -1,0 +1,18 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run Weather Impact Comparison (Outdoor Only)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				"& 'C:/Users/cahil/OneDrive/Desktop/Sports Model/NFL-Model/.venv/Scripts/python.exe' 'src/scripts/compare_weather_impact.py' --train-week 14 --outdoor-only"
+			],
+			"group": "build"
+		}
+	]
+}

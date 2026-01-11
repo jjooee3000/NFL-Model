@@ -1,1 +1,15 @@
 __pycache__/
+.ipynb_checkpoints/
+.DS_Store
+
+# Python environments and local configs
+.venv/
+.env
+
+# Generated outputs and artifacts
+outputs/
+*.joblib
+*.pkl
+
+# Local data files (keep large workbooks out of git)
+data/*.xlsx
