@@ -23,6 +23,7 @@ import pandas as pd
 from datetime import datetime
 from models.model_v3 import NFLHybridModelV3
 from utils.paths import DATA_DIR
+from utils.model_registry import get_latest_model, register_model
 
 
 def main():
@@ -36,6 +37,8 @@ def main():
                        choices=["default", "tuned", "stacking"],
                        default=["default"],
                        help="Model variants to run")
+    parser.add_argument("--force-retrain", action="store_true",
+                        help="Force retraining even if a cached model exists")
     parser.add_argument("--output", type=str,
                        default="outputs/prediction_log.csv",
                        help="Path to prediction log")
@@ -104,7 +107,7 @@ def main():
     # Run predictions for each variant
     for variant in args.variants:
         print(f"\n{'='*70}")
-        print(f"Training {variant} variant (train through week {args.train_through})...")
+        print(f"Preparing {variant} variant (train through week {args.train_through})...")
         print(f"{'='*70}")
         
         # Configure model based on variant
@@ -125,19 +128,54 @@ def main():
             rf_params = None
             stack = False
         
-        # Train model with full data (SQLite preferred for 2020-2025 + weather)
+        # Initialize model (SQLite preferred for 2020-2025 + weather)
         model = NFLHybridModelV3(workbook_path=str(workbook_path), window=8, model_type="randomforest", prefer_sqlite=True)
-        fit_result = model.fit(
-            train_through_week=args.train_through,
-            rf_params_margin=rf_params,
-            rf_params_total=rf_params,
-            stack_models=stack
-        )
+
+        # Try to load latest cached model unless forcing retrain
+        fit_result = {}
+        model_loaded = False
+        if not args.force_retrain:
+            cached_path = get_latest_model(model_type='randomforest')
+            if cached_path:
+                try:
+                    model.load_model(cached_path)
+                    model_loaded = True
+                    print(f"  Loaded cached model: {cached_path.name}")
+                    fit_result = model._fit_report or {}
+                except Exception as e:
+                    print(f"  Warning: Failed to load cached model: {e}")
+
+        # Train if no cached model available
+        if not model_loaded:
+            print(f"  Training model...")
+            fit_result = model.fit(
+                train_through_week=args.train_through,
+                rf_params_margin=rf_params,
+                rf_params_total=rf_params,
+                stack_models=stack
+            )
+            # Save and register the trained model for future runs
+            try:
+                model_path = model.save_model(
+                    metadata={
+                        'train_week': args.train_through,
+                        'variant': variant,
+                        'description': f'Trained through week {args.train_through}, variant={variant}'
+                    }
+                )
+                register_model(
+                    model_path=model_path,
+                    model_type='randomforest',
+                    features_count=len(model._X_cols) if model._X_cols else 0,
+                    metadata={'train_week': args.train_through, 'variant': variant}
+                )
+            except Exception as e:
+                print(f"  Warning: Failed to save/register model: {e}")
         
-        if fit_result['margin_MAE_test'] is not None:
-            print(f"  Test MAE: Margin {fit_result['margin_MAE_test']:.3f}, Total {fit_result['total_MAE_test']:.3f}")
+        if isinstance(fit_result, dict) and fit_result.get('margin_MAE_test') is not None:
+            print(f"  Test MAE: Margin {fit_result['margin_MAE_test']:.3f}, Total {fit_result.get('total_MAE_test', float('nan')):.3f}")
         else:
-            print(f"  No test data (training through all completed games)")
+            print(f"  No test data available or using cached model")
         
         # Generate predictions for each target game
         for idx, game in target_games.iterrows():
@@ -202,9 +240,9 @@ def main():
         with sqlite3.connect(str(db_path)) as conn:
             # Write cumulative log to 'predictions' table
             pred_log.to_sql('predictions', conn, if_exists='append', index=False)
-        print(f"✅ {len(pred_log)} total predictions logged to DB: {db_path}")
+        print(f"[SAVED] {len(pred_log)} total predictions logged to DB: {db_path}")
     except Exception as e:
-        print(f"⚠️  Failed to write predictions to DB ({db_path}): {e}")
+        print(f"[WARN] Failed to write predictions to DB ({db_path}): {e}")
         print(f"Fallback: saving to {output_path}")
         pred_log.to_csv(output_path, index=False)
     
@@ -215,7 +253,7 @@ def main():
             # Also store this run's entries separately in DB for traceability
             with sqlite3.connect(str(db_path)) as conn:
                 pd.DataFrame(run_entries).to_sql('predictions_runs', conn, if_exists='append', index=False)
-            print(f"\n🗂 Saved playoffs-only run entries to DB: {db_path} (table: predictions_runs)")
+            print(f"\n[SAVED] Playoffs-only run entries to DB: {db_path} (table: predictions_runs)")
         except Exception:
             playoffs_out = Path(f"outputs/predictions_playoffs_week{args.week}_{ts}.csv")
             pd.DataFrame(run_entries).to_csv(playoffs_out, index=False)

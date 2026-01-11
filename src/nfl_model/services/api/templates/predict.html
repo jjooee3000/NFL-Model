@@ -1,35 +1,42 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Predictions</h2>
-<p>Status: {{ status }} | Count: {{ count }}</p>
-{% if status != 'ok' %}
-<section class="error">
-  <h3>Error</h3>
-  <pre class="stderr">{{ stderr }}</pre>
-  <pre class="error">{{ error }}</pre>
-  {% if cmd %}
-  <p>Command: {{ cmd }}</p>
+<section class="card">
+  <h2>Predictions</h2>
+  <div class="meta">Status: <span class="pill {{ 'success' if status == 'ok' else 'warn' }}">{{ status }}</span> • Count: {{ count }}</div>
+  {% if status != 'ok' %}
+  <section class="error">
+    <h3>Error</h3>
+    <pre class="stderr">{{ stderr }}</pre>
+    <pre class="error">{{ error }}</pre>
+    {% if cmd %}
+    <p>Command: {{ cmd }}</p>
+    {% endif %}
+  </section>
+  {% else %}
+  <pre class="stdout">{{ stdout }}</pre>
+  <table>
+    <thead>
+      <tr>
+        <th>Matchup</th><th>Favorite</th><th>Total (pts)</th><th>Win Prob (fav)</th><th>Timestamp</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in predictions %}
+      {% set margin = (p.pred_margin_home or 0) %}
+      {% set total = (p.pred_total or 0) %}
+      {% set fav = p.home_team if margin >= 0 else p.away_team %}
+      {% set spread = margin if margin >= 0 else -margin %}
+      {% set winprob_fav = (p.pred_winprob_home or 0) if margin >= 0 else (1 - (p.pred_winprob_home or 0)) %}
+      <tr>
+        <td class="matchup"><span class="tag away">Away</span>{{ p.away_team }} <span style="color: var(--muted);">@</span> <span class="tag home">Home</span>{{ p.home_team }}</td>
+        <td><span class="favorite">{{ fav }} <span class="spread">-{{ '%.1f'|format(spread) }}</span></span></td>
+        <td class="totals"><strong>{{ '%.1f'|format(total) }}</strong><small>Projected total</small></td>
+        <td><span class="winprob">{{ '%.1f'|format(winprob_fav * 100) }}%</span></td>
+        <td>{{ p.timestamp[:19] if p.timestamp else '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
   {% endif %}
 </section>
-{% else %}
-<pre class="stdout">{{ stdout }}</pre>
-<table>
-  <thead>
-    <tr>
-      <th>Game ID</th><th>Timestamp</th><th>pred_margin_home</th><th>pred_total</th><th>pred_winprob_home</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for p in predictions %}
-    <tr>
-      <td>{{ p.game_id }}</td>
-      <td>{{ p.timestamp }}</td>
-      <td>{{ '%.2f'|format(p.pred_margin_home or 0) }}</td>
-      <td>{{ '%.2f'|format(p.pred_total or 0) }}</td>
-      <td>{{ '%.3f'|format(p.pred_winprob_home or 0) }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-{% endif %}
 {% endblock %}

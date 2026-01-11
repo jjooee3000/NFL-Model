@@ -33,6 +33,8 @@ if str(SRC_DIR) not in sys.path:
 
 from utils.paths import OUTPUTS_DIR, DATA_DIR, ensure_dir
 from models.model_v3 import NFLHybridModelV3
+from utils.model_registry import get_latest_model, register_model
+from utils.team_codes import canonical_team, canonical_game_id, to_pfr_team_code
 try:
     from scripts.update_postgame_scores import update_scores
 except Exception:
@@ -42,8 +44,8 @@ except Exception:
     from scripts.update_postgame_scores import update_scores
 
 
-def fetch_upcoming_games_sqlite(week: int, playoffs: bool = False) -> pd.DataFrame:
-    """Fetch upcoming games for a given week from SQLite or workbook fallback.
+def fetch_upcoming_games_sqlite(season: int, week: int, playoffs: bool = False) -> pd.DataFrame:
+    """Fetch upcoming games for a given season/week from SQLite or workbook fallback.
 
     If playoffs=True and no games are found for the requested week, try a
     fallback to week=1 (playoff round numbering).
@@ -55,17 +57,17 @@ def fetch_upcoming_games_sqlite(week: int, playoffs: bool = False) -> pd.DataFra
                 base_query = (
                     "SELECT game_id, season, week, away_team, home_team "
                     "FROM games "
-                    "WHERE week = ? AND (home_score IS NULL OR away_score IS NULL)"
+                    "WHERE season = ? AND week = ? AND (home_score IS NULL OR away_score IS NULL)"
                 )
-                df = pd.read_sql_query(base_query, conn, params=(week,))
+                df = pd.read_sql_query(base_query, conn, params=(season, week))
                 # Playoffs fallback: DB may store playoff rounds as week=1
                 if playoffs and df.empty and week >= 19:
-                    df = pd.read_sql_query(base_query, conn, params=(1,))
+                    df = pd.read_sql_query(base_query, conn, params=(season, 1))
                 return df
         except Exception as e:
             print(f"  Warning: SQLite upcoming games fetch failed: {e}")
     # Fallback to workbook 'games' sheet
-    workbook_path = DATA_DIR / "nfl_2025_model_data_with_moneylines.xlsx"
+    workbook_path = DATA_DIR / f"nfl_{season}_model_data_with_moneylines.xlsx"
     try:
         games_df = pd.read_excel(str(workbook_path), sheet_name="games")
         mask = (games_df.get("week") == week) & (games_df.get("home_score").isna())
@@ -95,11 +97,48 @@ def game_already_completed(game_id: str) -> bool:
     return False
 
 
-def run_single_prediction(week, train_week, variant, playoffs=False, games_filters=None):
-    """Run a single prediction with specific parameters"""
+def normalize_upcoming(df: pd.DataFrame, season: int, week: int) -> pd.DataFrame:
+    """Canonicalize team codes and rebuild game_ids for upcoming games."""
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+    if 'season' not in out.columns:
+        out['season'] = season
+    else:
+        out['season'] = out['season'].fillna(season).astype(int)
+
+    if 'week' not in out.columns:
+        out['week'] = week
+    else:
+        out['week'] = out['week'].fillna(week).astype(int)
+
+    out['away_team'] = out['away_team'].apply(canonical_team)
+    out['home_team'] = out['home_team'].apply(canonical_team)
+
+    def _gid(row):
+        return canonical_game_id(int(row.get('season', season)), int(row.get('week', week)), row['away_team'], row['home_team'])
+
+    out['game_id'] = out.apply(_gid, axis=1)
+    return out
+
+
+def run_single_prediction(week, train_week, variant, playoffs=False, games_filters=None, force_retrain=False, season: int = 2025, include_completed: bool = False):
+    """Run a single prediction with specific parameters
+    
+    Args:
+        week: Week number for predictions
+        train_week: Week to train through
+        variant: Model variant (default, tuned, stacking)
+        playoffs: Whether this is a playoff game
+        games_filters: Optional list of specific games to predict
+        force_retrain: If True, skip cached model and retrain
+        season: Season year for the games/pipelines
+        include_completed: If True, allow predictions even when scores already exist (useful for backfills)
+    """
     try:
-        # Initialize model with SQLite preference
-        workbook_path = DATA_DIR / "nfl_2025_model_data_with_moneylines.xlsx"
+        # Try to load cached model first (unless force_retrain)
+        workbook_path = DATA_DIR / f"nfl_{season}_model_data_with_moneylines.xlsx"
         model = NFLHybridModelV3(
             workbook_path=str(workbook_path),
             prefer_sqlite=True,
@@ -107,74 +146,119 @@ def run_single_prediction(week, train_week, variant, playoffs=False, games_filte
             window=8
         )
         
-        # Configure variant
-        use_tuning = variant in ['tuned', 'stacking']
-        use_stacking = variant == 'stacking'
+        model_loaded = False
+        if not force_retrain:
+            # Look for cached model matching our configuration
+            cached_model_path = get_latest_model(model_type='randomforest')
+            if cached_model_path:
+                try:
+                    model.load_model(cached_model_path)
+                    model_loaded = True
+                    print(f"  Loaded cached model: {cached_model_path.name}")
+                except Exception as e:
+                    print(f"  Warning: Failed to load cached model: {e}")
         
-        # Fit model
-        print(f"  Training: week {train_week}, variant={variant}...", end=' ')
-        start = time.time()
-        
-        report = model.fit(
-            train_through_week=train_week,
-            tune_hyperparams=use_tuning,
-            stack_models=use_stacking
-        )
-        
-        elapsed = time.time() - start
-        mae = report.get('margin_MAE_test') if isinstance(report, dict) else None
-        mae_str = f"{mae:.2f}" if (mae is not None and np.isfinite(mae)) else "N/A"
-        print(f"[OK] ({elapsed:.1f}s, MAE={mae_str})")
+        # Train if no cached model or force_retrain
+        if not model_loaded:
+            # Configure variant
+            use_tuning = variant in ['tuned', 'stacking']
+            use_stacking = variant == 'stacking'
+            
+            # Fit model
+            print(f"  Training: week {train_week}, variant={variant}...", end=' ')
+            start = time.time()
+            
+            report = model.fit(
+                train_through_week=train_week,
+                tune_hyperparams=use_tuning,
+                stack_models=use_stacking
+            )
+            
+            elapsed = time.time() - start
+            mae = report.get('margin_MAE_test') if isinstance(report, dict) else None
+            mae_str = f"{mae:.2f}" if (mae is not None and np.isfinite(mae)) else "N/A"
+            print(f"[OK] ({elapsed:.1f}s, MAE={mae_str})")
+            
+            # Save trained model for future use
+            try:
+                model_path = model.save_model(
+                    metadata={
+                        'train_week': train_week,
+                        'variant': variant,
+                        'margin_MAE': mae,
+                        'description': f'Trained through week {train_week}, variant={variant}'
+                    }
+                )
+                # Register in model registry
+                register_model(
+                    model_path=model_path,
+                    model_type='randomforest',
+                    features_count=len(model._X_cols),
+                    metadata={'train_week': train_week, 'mae': mae, 'variant': variant}
+                )
+            except Exception as e:
+                print(f"  Warning: Failed to save model: {e}")
+        else:
+            # Use loaded model report (if available)
+            report = model._fit_report or {}
         
         # Get upcoming games
-        upcoming = fetch_upcoming_games_sqlite(week=week, playoffs=playoffs)
-        
+        upcoming = fetch_upcoming_games_sqlite(season=season, week=week, playoffs=playoffs)
+
+        # Always honor explicit game filters by merging them in (useful for backfills)
+        explicit_pairs = []
+        if games_filters:
+            for game_str in games_filters:
+                for sep in ['@', ' @ ', ' vs ', '_']:
+                    if sep in game_str:
+                        parts = game_str.split(sep)
+                        if len(parts) == 2:
+                            away = parts[0].strip().upper()
+                            home = parts[1].strip().upper()
+                            explicit_pairs.append((away, home))
+                        break
+        explicit_df = pd.DataFrame([
+            {"season": season, "week": week, "away_team": a, "home_team": h}
+            for (a, h) in explicit_pairs
+        ]) if explicit_pairs else None
+
+        if (upcoming is None or upcoming.empty) and explicit_df is not None and not explicit_df.empty:
+            upcoming = explicit_df
+        elif explicit_df is not None and not explicit_df.empty:
+            # Combine and dedupe before normalization
+            upcoming = pd.concat([upcoming, explicit_df], ignore_index=True) if upcoming is not None else explicit_df
+
         if upcoming is None or upcoming.empty:
-            # If explicit games were provided, build upcoming from filters
-            if games_filters:
-                pairs = []
-                for game_str in games_filters:
-                    for sep in ['@', ' @ ', ' vs ', '_']:
-                        if sep in game_str:
-                            parts = game_str.split(sep)
-                            if len(parts) == 2:
-                                away = parts[0].strip().upper()
-                                home = parts[1].strip().upper()
-                                pairs.append((away, home))
-                            break
-                if pairs:
-                    upcoming = pd.DataFrame([
-                        {"season": 2025, "week": week, "away_team": a, "home_team": h}
-                        for (a, h) in pairs
-                    ])
-                else:
-                    print(f"    No games found for week {week}")
-                    return None
-            else:
-                print(f"    No games found for week {week}")
-                return None
-        
+            print(f"    No games found for week {week}")
+            return None
+
+        # Canonicalize upcoming games and rebuild consistent IDs
+        upcoming = normalize_upcoming(upcoming, season=season, week=week)
+        upcoming = upcoming.drop_duplicates(subset=['game_id'])
+
         # Generate predictions
         predictions = []
         for _, game in upcoming.iterrows():
-            gid = str(game.get('game_id', f"{int(game.get('season', 2025))}_{week:02d}_{str(game['away_team']).upper()}_{str(game['home_team']).upper()}"))
-            # Skip games already completed
-            if game_already_completed(gid):
+            gid = str(game.get('game_id') or canonical_game_id(int(game.get('season', season)), int(game.get('week', week)), game['away_team'], game['home_team']))
+            # Skip games already completed unless explicitly backfilling
+            if not include_completed and game_already_completed(gid):
                 print(f"    Skipping completed game: {gid}")
                 continue
             # Use training cutoff to select feature history; avoids week=1 playoff empty history
+            away_t = canonical_team(game['away_team'])
+            home_t = canonical_team(game['home_team'])
             pred = model.predict_game(
-                away_team=str(game['away_team']).upper(),
-                home_team=str(game['home_team']).upper(),
+                away_team=to_pfr_team_code(away_t),
+                home_team=to_pfr_team_code(home_t),
                 week=train_week + 1
             )
             
             if pred:
                 predictions.append({
                     'game_id': gid,
-                    'week': week,
-                    'away_team': str(game['away_team']).upper(),
-                    'home_team': str(game['home_team']).upper(),
+                    'week': int(game.get('week', week)),
+                    'away_team': away_t,
+                    'home_team': home_t,
                     'pred_margin_home': pred.get('pred_margin_home', pred.get('margin')),
                     'pred_total': pred.get('pred_total', pred.get('total')),
                     'pred_winprob_home': (
@@ -405,6 +489,11 @@ def main():
         help='Model variants to run (default: default tuned stacking)'
     )
     parser.add_argument(
+        '--force-retrain',
+        action='store_true',
+        help='Force retraining even if a cached model exists'
+    )
+    parser.add_argument(
         '--games',
         nargs='+',
         help='Filter to specific games (e.g., BUF@JAX SFO@PHI)'
@@ -420,6 +509,11 @@ def main():
         default=2025,
         help='Season year for postgame sync (default: 2025)'
     )
+    parser.add_argument(
+        '--include-completed',
+        action='store_true',
+        help='Allow predictions for games that already have final scores (backfill)'
+    )
     
     args = parser.parse_args()
     
@@ -430,7 +524,8 @@ def main():
     print(f"  Training windows: {args.train_windows}")
     print(f"  Variants: {args.variants}")
     print(f"  Total predictions per game: {len(args.train_windows) * len(args.variants)}")
-    print(f"  Expected runtime: ~{len(args.train_windows) * len(args.variants) * 30}s")
+    print(f"  Expected runtime (training): ~{len(args.train_windows) * len(args.variants) * 30}s")
+    print(f"  Cached models: will skip training when available")
 
     # Optional: sync completed scores into DB to ensure filtering works
     if args.sync_postgame:
@@ -459,14 +554,17 @@ def main():
                 train_week=train_week,
                 variant=variant,
                 playoffs=args.playoffs,
-                games_filters=args.games
+                games_filters=args.games,
+                force_retrain=args.force_retrain if hasattr(args, 'force_retrain') else False,
+                season=args.season,
+                include_completed=args.include_completed
             )
             
             if preds is not None:
                 all_predictions.append(preds)
     
     if not all_predictions:
-        print("\n❌ No predictions generated")
+        print("\n[ERROR] No predictions generated")
         sys.exit(1)
     
     # Combine all predictions
@@ -480,9 +578,9 @@ def main():
                 if sep in game_str:
                     parts = game_str.split(sep)
                     if len(parts) == 2:
-                        away = parts[0].strip().upper()
-                        home = parts[1].strip().upper()
-                        game_filters.append((away, home))
+                                away = canonical_team(parts[0])
+                                home = canonical_team(parts[1])
+                                game_filters.append((away, home))
                     break
         
         filtered = all_preds_df[
@@ -505,7 +603,7 @@ def main():
     combined_df = combine_predictions(all_preds_df)
     
     if combined_df is None:
-        print("❌ Failed to combine predictions")
+        print("[ERROR] Failed to combine predictions")
         sys.exit(1)
     
     # Save results

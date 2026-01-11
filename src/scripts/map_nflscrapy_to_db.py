@@ -21,31 +21,18 @@ import json
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[2]
+SRC_DIR = ROOT / 'src'
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from utils.team_codes import canonical_team, canonical_game_id
+
 DATA = ROOT / 'data'
 DB_PATH = DATA / 'nfl_model.db'
 
-TEAM_CODE_FIXES = {
-    # Normalize any historic PFR codes to our alias set
-    'SDG': 'LAC',
-    'OTI': 'TEN',
-    'LAR': 'LAR',
-    'RAI': 'LVR',
-    'CRD': 'ARI',
-    'GNB': 'GNB',
-    'KAN': 'KAN',
-    'NOR': 'NOR',
-}
-
-
-def norm_team(code: str) -> str:
-    if not isinstance(code, str):
-        return str(code)
-    c = code.upper()
-    return TEAM_CODE_FIXES.get(c, c)
-
-
-def derive_game_id(season: int, week: int, away: str, home: str) -> str:
-    return f"{int(season)}_W{int(week):02d}_{norm_team(away)}_{norm_team(home)}"
+# Preserve legacy references within this module
+norm_team = canonical_team
+derive_game_id = canonical_game_id
 
 
 def upsert_games(conn: sqlite3.Connection, seasons_df: pd.DataFrame, metadata_df: pd.DataFrame, limit: Optional[int] = None) -> None:

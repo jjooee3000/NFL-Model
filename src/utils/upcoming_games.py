@@ -3,12 +3,35 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
+from utils.team_codes import canonical_team, normalize_matchup_key
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "data"
 
 API_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
 NFL_SCORES_URL_TMPL = "https://www.nfl.com/scores/{YYYY}{MM}{DD}"
+
+
+def _canonicalize_games(games: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Apply canonical team codes and deduplicate by date + matchup."""
+    seen = set()
+    deduped: List[Dict[str, Any]] = []
+    for g in games:
+        away = canonical_team(g.get("away"))
+        home = canonical_team(g.get("home"))
+        if not away or not home:
+            continue
+        date = g.get("date")
+        key = normalize_matchup_key(date, away, home)
+        if key in seen:
+            continue
+        seen.add(key)
+        item = dict(g)
+        item["away"] = away
+        item["home"] = home
+        item["name"] = f"{away} @ {home}"
+        deduped.append(item)
+    return deduped
 
 
 def fetch_espn_upcoming(days_ahead: int = 7) -> List[Dict[str, Any]]:
@@ -58,25 +81,34 @@ def fetch_espn_upcoming(days_ahead: int = 7) -> List[Dict[str, Any]]:
                     away_abbr = (away_team.get("team", {}).get("abbreviation") or "").upper()
                     if not home_abbr or not away_abbr:
                         continue
+
+                    game_date = None
+                    game_time = None
+                    date_str = ev.get("date") or comp.get("date")
+                    if date_str:
+                        try:
+                            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                            local_dt = dt.astimezone()
+                            game_date = local_dt.strftime("%Y-%m-%d")
+                            game_time = local_dt.strftime("%H:%M")
+                        except Exception:
+                            game_date = date.isoformat()
+                            game_time = None
+                    week_num = ev.get("week", {}).get("number") or comp.get("week", {}).get("number")
+
                     out.append({
-                        "date": date.isoformat(),
+                        "date": game_date or date.isoformat(),
+                        "time": game_time,
                         "away": away_abbr,
                         "home": home_abbr,
                         "name": f"{away_abbr} @ {home_abbr}",
+                        "week": week_num,
+                        "seasontype": season_type,
                     })
             except Exception:
                 # Ignore fetch errors per-day to keep results flowing
                 continue
-    # Deduplicate by matchup
-    seen = set()
-    deduped: List[Dict[str, Any]] = []
-    for g in out:
-        key = (g["away"], g["home"])
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(g)
-    return deduped
+    return _canonicalize_games(out)
 
 
 def fetch_nflcom_upcoming(days_ahead: int = 7) -> List[Dict[str, Any]]:
@@ -113,16 +145,7 @@ def fetch_nflcom_upcoming(days_ahead: int = 7) -> List[Dict[str, Any]]:
                 })
         except Exception:
             continue
-    # Dedup
-    seen = set()
-    dedup: List[Dict[str, Any]] = []
-    for g in out:
-        key = (g["away"], g["home"])  # ignore date variance
-        if key in seen:
-            continue
-        seen.add(key)
-        dedup.append(g)
-    return dedup
+    return _canonicalize_games(out)
 
 
 def fetch_db_upcoming() -> List[Dict[str, Any]]:
@@ -174,16 +197,7 @@ def fetch_db_upcoming() -> List[Dict[str, Any]]:
                     })
     except Exception:
         return []
-    # Dedup
-    seen = set()
-    dedup: List[Dict[str, Any]] = []
-    for g in out:
-        key = (g["away"], g["home"])
-        if key in seen:
-            continue
-        seen.add(key)
-        dedup.append(g)
-    return dedup
+    return _canonicalize_games(out)
 
 
 def fetch_upcoming(days_ahead: int = 7) -> List[Dict[str, Any]]:

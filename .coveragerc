@@ -1,0 +1,28 @@
+[run]
+source = src
+omit =
+    */tests/*
+    */__pycache__/*
+    */site-packages/*
+    */archive/*
+    */__init__.py
+    */src/scripts/archive/*
+    */src/models/archive/*
+
+[report]
+precision = 2
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstractmethod
+    @overload
+
+[html]
+directory = htmlcov
+
+[xml]
+output = coverage.xml

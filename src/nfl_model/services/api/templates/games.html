@@ -1,23 +1,73 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Games (Season {{ season }}{% if week is not none %}, Week {{ week }}{% endif %})</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Game ID</th><th>Week</th><th>Away</th><th>Home</th><th>Away Score</th><th>Home Score</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for g in games %}
-    <tr>
-      <td>{{ g.game_id }}</td>
-      <td>{{ g.week }}</td>
-      <td>{{ g.away_team }}</td>
-      <td>{{ g.home_team }}</td>
-      <td>{{ g.away_score }}</td>
-      <td>{{ g.home_score }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<section class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;">
+    <h2 style="margin:0;">Games (Season {{ season }}{% if week is not none %}, Week {{ week }}{% endif %})</h2>
+    <div style="display:flex;align-items:center;gap:0.5rem;">
+      <button id="sync-postgame" class="btn">Sync Postgame Scores</button>
+      <span id="sync-status" style="color:var(--muted);"></span>
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th><th>Matchup</th><th>Score</th><th>Pred Margin (Home)</th><th>Model Miss</th><th>Totals (Pred / Actual)</th><th>Pred TS</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for g in games %}
+      <tr>
+        <td>{{ g['game_date_yyyy-mm-dd'] or '-' }}</td>
+        <td class="matchup"><span class="tag away">Away</span>{{ g.away_team }} <span style="color: var(--muted);">@</span> <span class="tag home">Home</span>{{ g.home_team }}</td>
+        <td>
+          {% if g.away_score is not none and g.home_score is not none %}
+            {{ g.away_score|round(0)|int }} - {{ g.home_score|round(0)|int }}
+          {% else %}-{% endif %}
+        </td>
+        <td>{{ '%.1f'|format(g.pred_margin_home) if g.pred_margin_home is not none else '-' }}</td>
+        <td>{{ '%.1f'|format(g.model_miss) if g.model_miss is not none else '-' }}</td>
+        <td>
+          {% if g.pred_total is not none %}{{ '%.1f'|format(g.pred_total) }}{% else %}-{% endif %}
+          {% if g.actual_total is not none %} / {{ '%.1f'|format(g.actual_total) }}{% endif %}
+        </td>
+        <td>{{ g.pred_timestamp[:19] if g.pred_timestamp else '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+<script>
+  (function() {
+    const btn = document.getElementById('sync-postgame');
+    const statusEl = document.getElementById('sync-status');
+    if (!btn) return;
+
+    btn.addEventListener('click', async () => {
+      statusEl.textContent = 'Starting…';
+      btn.disabled = true;
+      try {
+        const body = new URLSearchParams();
+        body.append('season', '{{ season }}');
+        {% if week is not none %}
+        body.append('week', '{{ week }}');
+        {% endif %}
+        const res = await fetch('/ui/sync-postgame', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || 'Failed to start sync');
+        }
+        const data = await res.json();
+        statusEl.textContent = `Started (pid ${data.pid}). Logs: ${data.log}`;
+      } catch (e) {
+        statusEl.textContent = e.message || 'Error starting sync';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  })();
+</script>
 {% endblock %}

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from datetime import datetime
 
 try:
     from sklearn.linear_model import Ridge
@@ -53,6 +54,13 @@ class ModelArtifacts:
     model_type: str = "randomforest"
     scaler_margin: Optional[Any] = None
     scaler_total: Optional[Any] = None
+    tg_momentum: Optional[pd.DataFrame] = None
+    # Metadata for tracking
+    train_date: Optional[str] = None
+    train_through_week: Optional[int] = None
+    data_source: Optional[str] = None
+    n_train_samples: Optional[int] = None
+    version: str = "v3"
 
 
 class NFLHybridModelV3:
@@ -698,6 +706,7 @@ class NFLHybridModelV3:
             model_type=self.model_type,
             scaler_margin=scaler_margin,
             scaler_total=scaler_total,
+            tg_momentum=tg_momentum,
         )
 
         self._tg = tg_momentum
@@ -896,11 +905,97 @@ class NFLHybridModelV3:
             "pred_total": pred_total,
             "pred_winprob_home": p_home,
             "pred_winprob_away": p_away,
-            "as_of_week": as_of_week,
-            "close_spread_home": row.get("close_spread_home"),
-            "close_total": row.get("close_total"),
-            "imp_p_home_novig": row.get("imp_p_home_novig"),
         }
+
+    def save_model(self, path: Path = None, metadata: Dict[str, Any] = None) -> Path:
+        """
+        Save trained model and artifacts to disk.
+        
+        Args:
+            path: Path to save model. If None, auto-generates timestamped filename.
+            metadata: Optional metadata to include (description, notes, etc.)
+            
+        Returns:
+            Path where model was saved
+            
+        Raises:
+            ValueError: If model hasn't been trained yet
+        """
+        if self._artifacts is None:
+            raise ValueError("Cannot save model: No trained model artifacts found. Call fit() first.")
+        
+        # Auto-generate path if not provided
+        if path is None:
+            models_dir = PROJECT_ROOT / "outputs" / "models"
+            models_dir.mkdir(parents=True, exist_ok=True)
+            
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"model_v3_{self.model_type}_{timestamp}.pkl"
+            path = models_dir / filename
+        else:
+            path = Path(path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Prepare save bundle
+        save_bundle = {
+            'artifacts': self._artifacts,
+            'fit_report': self._fit_report,
+            'data_source': self._data_source,
+            'metadata': metadata or {},
+            'saved_at': datetime.now().isoformat(),
+            'model_version': 'v3',
+            'window': self.window,
+            'model_type': self.model_type,
+        }
+        
+        # Save with joblib
+        joblib.dump(save_bundle, path, compress=3)
+        
+        print(f"[SAVED] Model saved to: {path}")
+        print(f"   - Model type: {self.model_type}")
+        print(f"   - Features: {len(self._artifacts.features)}")
+        print(f"   - Data source: {self._data_source}")
+        
+        return path
+    
+    def load_model(self, path: Path) -> None:
+        """
+        Load trained model from disk.
+        
+        Args:
+            path: Path to saved model file
+            
+        Raises:
+            FileNotFoundError: If model file doesn't exist
+            ValueError: If loaded file is not a valid model
+        """
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"Model file not found: {path}")
+        
+        # Load bundle
+        save_bundle = joblib.load(path)
+        
+        # Validate
+        if 'artifacts' not in save_bundle:
+            raise ValueError(f"Invalid model file: {path} (missing artifacts)")
+        
+        # Restore state
+        self._artifacts = save_bundle['artifacts']
+        self._fit_report = save_bundle.get('fit_report')
+        self._data_source = save_bundle.get('data_source')
+        self.window = save_bundle.get('window', 8)
+        self.model_type = save_bundle.get('model_type', 'randomforest')
+        self._tg = getattr(self._artifacts, 'tg_momentum', None)
+        
+        print(f"[LOADED] Model loaded from: {path}")
+        print(f"   - Model type: {self.model_type}")
+        print(f"   - Features: {len(self._artifacts.features)}")
+        print(f"   - Saved at: {save_bundle.get('saved_at', 'unknown')}")
+        print(f"   - Data source: {self._data_source}")
+        
+        # Restore feature columns for prediction
+        self._X_cols = self._artifacts.features
 
 
 if __name__ == "__main__":

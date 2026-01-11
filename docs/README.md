@@ -7,7 +7,19 @@
 
 ---
 
-## 📚 Documentation Structure
+## � Current Priorities
+
+**📋 [TOP 3 PRIORITIES](TOP_3_PRIORITIES.md)** - Active implementation plan (Updated: 2026-01-11)
+- ✅ Priority 1: API Service - **RESOLVED** (working on port 8080)
+- 🔄 Priority 1b: ESPN API Integration - **IN PROGRESS** ([Analysis Complete](analysis/ESPN_API_INTEGRATION_ANALYSIS.md))
+- 🔴 Priority 2: Automated Testing - **CRITICAL** (starts Jan 12)
+- 🔴 Priority 3: Model Persistence - **HIGH** (starts Jan 13)
+
+**📊 [Project Health Check](PROJECT_HEALTH_CHECK.md)** - Comprehensive assessment (Grade: B-, 6.1/10)
+
+---
+
+## �📚 Documentation Structure
 
 ### Quick Start
 - **[Getting Started Guide](guides/GETTING_STARTED.md)** - Setup, installation, first predictions

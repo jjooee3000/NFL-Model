@@ -46,6 +46,20 @@ pip install -r requirements.txt
 & ".venv/Scripts/python.exe" src/scripts/predict_ensemble_multiwindow.py --season 2025 --week 1 --playoffs
 ```
 
+#### Use Cached Models (Persistence)
+```powershell
+# Use cached model if available (fast path)
+& ".venv/Scripts/python.exe" src/scripts/predict_ensemble_multiwindow.py --season 2025 --week 1 --playoffs
+
+# Force retrain and refresh cache
+& ".venv/Scripts/python.exe" src/scripts/predict_ensemble_multiwindow.py --season 2025 --week 1 --playoffs --force-retrain
+
+# Upcoming targets with caching
+& ".venv/Scripts/python.exe" src/scripts/predict_upcoming.py --week 19 --train-through 18
+```
+
+**Benchmark (single window, default variant):** Cold retrain ~9.5s vs cached ~3.8s (week 1, train_windows=[14]).
+
 ### Start API Server
 ```powershell
 # Launch FastAPI service
@@ -115,6 +129,42 @@ NFL-Model/
 - **Predictions**: On-demand prediction generation
 - **Monitoring**: Health checks and status endpoints
 
+### Testing Infrastructure ⚡ NEW
+- **Automated Tests**: 105 test cases with 90.5% pass rate
+- **Coverage**: 74% on core model (model_v3.py)
+- **CI/CD**: GitHub Actions workflow for automated testing
+- **Test Categories**: Unit, integration, API, database tests
+
+---
+
+## 🧪 Testing
+
+### Run Tests
+```powershell
+# Run all tests
+pytest tests/
+
+# Run with coverage report
+pytest tests/ --cov=src/models --cov=src/utils --cov-report=html
+
+# Run specific test categories
+pytest -m "unit"                  # Fast unit tests only
+pytest -m "integration"           # Integration tests
+pytest -m "not slow"              # Exclude slow tests
+```
+
+### Test Files
+- **test_model_v3.py** - Model initialization, features, training, predictions (20 tests)
+- **test_feature_builder.py** - Feature engineering functions (31 tests)
+- **test_database.py** - Database operations and integrity (27 tests)
+- **test_api_endpoints.py** - API endpoints and responses (25 tests)
+
+### Coverage Targets
+- `src/models/model_v3.py`: **74%** ✅ (target: 70%+)
+- Overall models & utils: 10.75% (expanding coverage)
+
+**See**: [Testing Implementation Report](docs/TESTING_IMPLEMENTATION_REPORT.md)
+
 ---
 
 ## 🔧 VS Code Tasks
@@ -124,6 +174,7 @@ Use the Command Palette (Ctrl+Shift+P) → "Tasks: Run Task":
 - **Run API (Uvicorn)** - Start FastAPI server
 - **Run DB Schema Migrations** - Apply database schema updates
 - **Run Weather Impact Comparison** - Analyze weather features
+- **Run Tests** - Execute pytest test suite (coming soon)
 
 ---
 
@@ -148,13 +199,15 @@ Use the Command Palette (Ctrl+Shift+P) → "Tasks: Run Task":
 **Current Phase**: Model Enhancement & Validation  
 **Last Updated**: 2026-01-11
 
-### Recent Completions ✅
+##**Testing Infrastructure** - 105 automated tests with CI/CD workflow ⚡ NEW
 - Feature interaction implementation (11 categories)
 - XGBoost integration and comparison
 - Historical validation framework
 - Opponent-adjusted metrics design
 - Comprehensive documentation restructuring
 
+### Next Priorities 🎯
+- Increase test coverage to 80%+ (currently 74% on core model)
 ### Next Priorities 🎯
 - Expand historical validation across multiple weeks
 - Implement opponent-adjusted metrics (placeholder ready)

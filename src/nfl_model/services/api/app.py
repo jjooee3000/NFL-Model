@@ -10,9 +10,11 @@ import sys
 from pydantic import BaseModel
 import traceback
 import datetime
+import os
+from utils.team_codes import canonical_team, canonical_game_id, normalize_matchup_key
 
-# Add src directory to path for imports
-SRC_DIR = Path(__file__).resolve().parents[3]
+# Add src directory to path for imports (ensure project imports work when launched via uvicorn)
+SRC_DIR = Path(__file__).resolve().parents[4]  # .../src
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
@@ -138,7 +140,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "db": str(DB_PATH)}
+    db_status = "ok" if DB_PATH.exists() else "missing"
+    return {"status": "ok", "db": db_status, "db_path": str(DB_PATH)}
 
 
 @app.get("/")
@@ -165,7 +168,8 @@ def index(request: Request):
                 if row:
                     predictions.append(dict(row))
     
-    health = {"status": "ok", "db": str(DB_PATH)}
+    db_status = "ok" if DB_PATH.exists() else "missing"
+    health = {"status": "ok", "db": db_status, "db_path": str(DB_PATH)}
     return templates.TemplateResponse(
         "index.html",
         {
@@ -193,31 +197,78 @@ def upcoming_json(days: int = 7):
 
 @app.post("/ui/refresh-upcoming")
 def ui_refresh_upcoming(request: Request):
-    # Re-fetch upcoming and run predictions, then render home
+    # Re-fetch upcoming and trigger predictions without blocking the request
     try:
         from utils.upcoming_games import fetch_upcoming_with_source
         upcoming, source = fetch_upcoming_with_source(days_ahead=7)
     except Exception:
         upcoming, source = [], None
+
     games = [f"{g['away']}@{g['home']}" for g in upcoming]
     preds = None
-    if games:
-        payload = PredictRequest(
-            season=datetime.datetime.utcnow().year,
-            week=None,
-            playoffs=False,
-            sync_postgame=True,
-            games=games,
-            train_windows=[18],
-            variants=["default"],
-        )
-        try:
-            preds = run_predictions(payload)
-        except HTTPException as e:
-            preds = {"status": "error", "count": 0, "predictions": [], "stdout": None, "stderr": getattr(e, 'detail', None), "cmd": None}
-        except Exception as e:
-            preds = {"status": "error", "count": 0, "predictions": [], "stdout": None, "stderr": str(e), "cmd": None}
-    health = {"status": "ok", "db": str(DB_PATH)}
+    playoffs = any(g.get("seasontype") == 2 for g in upcoming)
+    target_week = max([g.get("week") for g in upcoming if g.get("week") is not None] or [None])
+    week_for_model: Optional[int] = None
+    if target_week is not None:
+        week_for_model = 18 + int(target_week) if playoffs else int(target_week)
+
+    # Derive season from DB (latest) as default to avoid mis-keying postseason
+    season_from_db: Optional[int] = None
+    with get_conn() as conn:
+        row = conn.execute("SELECT MAX(season) FROM games").fetchone()
+        if row and row[0] is not None:
+            season_from_db = int(row[0])
+
+    target_season = season_from_db or datetime.datetime.utcnow().year
+
+    if games and week_for_model is not None:
+        python_exe = ROOT / ".venv" / "Scripts" / "python.exe"
+        script = ROOT / "src" / "scripts" / "predict_ensemble_multiwindow.py"
+        if not python_exe.exists() or not script.exists():
+            preds = {"status": "error", "count": 0, "predictions": [], "stdout": None, "stderr": "Predict script or venv python missing", "cmd": None}
+        else:
+            cmd: List[str] = [str(python_exe), str(script), "--season", str(target_season), "--week", str(week_for_model), "--train-windows", "18", "--games", *games]
+            if playoffs:
+                cmd.append("--playoffs")
+            cmd.append("--sync-postgame")
+
+            log_path = ROOT / "outputs" / "predict_upcoming.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+
+            creationflags = 0
+            if sys.platform.startswith("win"):
+                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0)
+
+            env = os.environ.copy()
+            existing_pp = env.get("PYTHONPATH", "")
+            extra = str(ROOT / "src")
+            env["PYTHONPATH"] = f"{extra}{os.pathsep}{existing_pp}" if existing_pp else extra
+
+            log_file = open(log_path, "a", encoding="utf-8")
+            log_file.write(f"\n[{datetime.datetime.utcnow().isoformat(timespec='seconds')}] START {' '.join(cmd)}\n")
+            log_file.flush()
+            try:
+                subprocess.Popen(
+                    cmd,
+                    cwd=str(ROOT),
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    creationflags=creationflags,
+                    env=env,
+                )
+            except Exception as e:
+                preds = {"status": "error", "count": 0, "predictions": [], "stdout": None, "stderr": str(e), "cmd": cmd}
+            finally:
+                try:
+                    log_file.close()
+                except Exception:
+                    pass
+
+            if preds is None:
+                preds = {"status": "started", "count": 0, "predictions": [], "stdout": None, "stderr": None, "cmd": cmd}
+
+    db_status = "ok" if DB_PATH.exists() else "missing"
+    health = {"status": "ok", "db": db_status, "db_path": str(DB_PATH)}
     return templates.TemplateResponse(
         "index.html",
         {
@@ -234,25 +285,100 @@ def ui_refresh_upcoming(request: Request):
 
 
 @app.get("/games")
-def list_games(season: int, week: Optional[int] = None, limit: int = 50):
+def list_games(season: int, week: Optional[int] = None, limit: int = 300):
+    def priority(row: dict):
+        home_score = row.get("home_score")
+        away_score = row.get("away_score")
+        complete = 1 if (home_score is not None and away_score is not None) else 0
+        has_date = 1 if row.get("game_date_yyyy-mm-dd") else 0
+        raw_match = 1 if row.get("raw_game_id") == row.get("game_id") else 0
+        return (complete, has_date, raw_match)
+
     with get_conn() as conn:
         conn.row_factory = sqlite3.Row
         if week is None:
             rows = conn.execute(
-                "SELECT game_id, season, week, away_team, home_team, away_score, home_score FROM games WHERE season = ? ORDER BY week, game_id LIMIT ?",
+                """
+                SELECT game_id, season, week, away_team, home_team, away_score, home_score, "game_date_yyyy-mm-dd", kickoff_time_local
+                FROM games
+                WHERE season = ?
+                ORDER BY
+                  COALESCE("game_date_yyyy-mm-dd", '') DESC,
+                  COALESCE(kickoff_time_local, '') DESC,
+                  week DESC,
+                  game_id DESC
+                LIMIT ?
+                """,
                 (season, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT game_id, season, week, away_team, home_team, away_score, home_score FROM games WHERE season = ? AND week = ? ORDER BY game_id LIMIT ?",
+                """
+                SELECT game_id, season, week, away_team, home_team, away_score, home_score, "game_date_yyyy-mm-dd", kickoff_time_local
+                FROM games
+                WHERE season = ? AND week = ?
+                ORDER BY COALESCE("game_date_yyyy-mm-dd", ''), COALESCE(kickoff_time_local, ''), game_id
+                LIMIT ?
+                """,
                 (season, week, limit),
             ).fetchall()
-        return [dict(r) for r in rows]
+
+        deduped = {}
+        for r in rows:
+            g = dict(r)
+            g["raw_game_id"] = g.get("game_id")
+            g["away_team"] = canonical_team(g.get("away_team"))
+            g["home_team"] = canonical_team(g.get("home_team"))
+            try:
+                wk_val = int(g.get("week") or 0)
+            except Exception:
+                wk_val = 0
+            g["game_id"] = canonical_game_id(season, wk_val, g["away_team"], g["home_team"])
+            key = normalize_matchup_key(g.get("game_date_yyyy-mm-dd"), g["away_team"], g["home_team"])
+            current = deduped.get(key)
+            if current is None or priority(g) > priority(current):
+                deduped[key] = g
+        return list(deduped.values())
 
 
 @app.get("/ui/games")
 def ui_games(request: Request, season: int, week: Optional[int] = None, limit: int = 50):
     games = list_games(season=season, week=week, limit=limit)
+
+    # Attach latest prediction per game and compute model miss vs actual
+    with get_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        pred_map = {}
+        like_clause = f"{season}_W{int(week):02d}_%" if week is not None else f"{season}_%"
+        pred_rows = conn.execute(
+            "SELECT game_id, away_team, home_team, pred_margin_home, pred_total, timestamp FROM ensemble_predictions WHERE game_id LIKE ? ORDER BY timestamp DESC",
+            (like_clause,),
+        ).fetchall()
+        for row in pred_rows:
+            key = (canonical_team(row["away_team"]), canonical_team(row["home_team"]))
+            if key not in pred_map:
+                pred_map[key] = dict(row)
+
+    for g in games:
+        pred = pred_map.get((g["away_team"], g["home_team"]), {})
+        g["pred_margin_home"] = pred.get("pred_margin_home")
+        g["pred_total"] = pred.get("pred_total")
+        g["pred_timestamp"] = pred.get("timestamp")
+
+        home_score = g.get("home_score")
+        away_score = g.get("away_score")
+        if home_score is not None and away_score is not None:
+            g["actual_margin_home"] = float(home_score) - float(away_score)
+            g["actual_total"] = float(home_score) + float(away_score)
+        else:
+            g["actual_margin_home"] = None
+            g["actual_total"] = None
+
+        if g["actual_margin_home"] is not None and g["pred_margin_home"] is not None:
+            g["model_miss"] = g["actual_margin_home"] - float(g["pred_margin_home"])
+        else:
+            g["model_miss"] = None
+
     return templates.TemplateResponse("games.html", {"request": request, "games": games, "season": season, "week": week, "title": "Games"})
 
 
@@ -388,3 +514,58 @@ def ui_predict(request: Request, season: int = Form(...), week: Optional[int] = 
             "cmd": None,
         }
         return templates.TemplateResponse("predict.html", context, status_code=e.status_code)
+
+
+@app.post("/ui/sync-postgame")
+def ui_sync_postgame(request: Request, season: int = Form(...), week: Optional[int] = Form(None)):
+    script = ROOT / "src" / "scripts" / "update_postgame_scores.py"
+    if not script.exists():
+        raise HTTPException(status_code=500, detail=f"Script not found: {script}")
+
+    python_exe = ROOT / ".venv" / "Scripts" / "python.exe"
+    if not python_exe.exists():
+        raise HTTPException(status_code=500, detail=f"Virtual environment Python not found: {python_exe}")
+
+    cmd: List[str] = [str(python_exe), str(script), "--season", str(season)]
+    resolved_week = week
+    if resolved_week is None:
+        with get_conn() as conn:
+            row = conn.execute("SELECT MAX(week) FROM games WHERE season = ?", (season,)).fetchone()
+            resolved_week = int(row[0]) if row and row[0] is not None else None
+    if resolved_week is not None:
+        cmd.extend(["--week", str(resolved_week)])
+
+    log_path = ROOT / "outputs" / "postgame_sync.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    creationflags = 0
+    if sys.platform.startswith("win"):
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0)
+
+    env = os.environ.copy()
+    existing_pp = env.get("PYTHONPATH", "")
+    extra = str(ROOT / "src")
+    env["PYTHONPATH"] = f"{extra}{os.pathsep}{existing_pp}" if existing_pp else extra
+
+    log_file = open(log_path, "a", encoding="utf-8")
+    log_file.write(f"\n[{datetime.datetime.utcnow().isoformat(timespec='seconds')}] START {' '.join(cmd)}\n")
+    log_file.flush()
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(ROOT),
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            creationflags=creationflags,
+            env=env,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Postgame sync launch failed: {e}")
+    finally:
+        try:
+            log_file.close()
+        except Exception:
+            pass
+
+    return JSONResponse({"status": "started", "pid": proc.pid, "cmd": cmd, "log": str(log_path)})
