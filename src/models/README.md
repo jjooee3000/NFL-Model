@@ -7,6 +7,14 @@
 - Expanded data sources (points_for, points_against)
 - Fixed feature storage bug from v2
 - ~300+ engineered features
+- **Test MAE**: margin 9.77, total 10.98
+
+**model_v4.py** - Experimental (team-season diffs + rolling gamelogs)
+- Historical team-season stats (2020–2025) loaded from SQLite or Excel
+- Per-team rolling momentum features from PFR gamelogs (4/8-game windows)
+- Built differential features (home - away)
+- **Test MAE**: margin 11.14, total 10.98 (underperforms v3 on margin)
+- Status: Under development; feature selection / alternative architectures being tested
 
 ## Model Versioning Policy
 
@@ -37,12 +45,13 @@ When creating a new model version (v4, v5, etc.):
 
 ## Model Evolution Summary
 
-| Version | Key Changes | Status |
-|---------|-------------|--------|
-| v0 | Ridge regression baseline, rolling averages | Archived |
-| v1 | Non-linear models (XGBoost, LightGBM, RF) | Archived |
-| v2 | Momentum features (EMA, trend, volatility) | Archived |
-| v3 | Fixed momentum bug + expanded features | **ACTIVE** |
+| Version | Key Changes | Status | Test MAE (Margin / Total) |
+|---------|-------------|--------|-------------------------|
+| v0 | Ridge regression baseline, rolling averages | Archived | ~11.5 / ~11.2 |
+| v1 | Non-linear models (XGBoost, LightGBM, RF) | Archived | ~10.5 / ~10.5 |
+| v2 | Momentum features (EMA, trend, volatility) | Archived | ~9.9 / ~11.0 |
+| v3 | Fixed momentum bug + expanded features | **ACTIVE** | **9.77 / 10.98** |
+| v4 | Team-season diffs + gamelog rolling momentum | Experimental | 11.14 / 10.98 |
 
 ## Running the Active Model
 

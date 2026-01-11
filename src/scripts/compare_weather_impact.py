@@ -22,7 +22,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from utils.paths import DATA_DIR, REPORTS_DIR, ensure_dir  # noqa: E402
-from models.model_v2 import NFLHybridModelV2 as V2Model  # noqa: E402
+from models.archive.model_v2 import NFLHybridModelV2 as V2Model  # noqa: E402
 from models.model_v3 import NFLHybridModelV3 as V3Model  # noqa: E402
 
 
@@ -41,6 +41,19 @@ def train_v3_without_weather(workbook_path: str, train_through_week: int, outdoo
     
     # Temporarily patch the _candidate_features method to exclude weather
     original_method = V3Model._candidate_features
+    original_load_v2 = V2Model.load_workbook
+    
+    # Apply outdoor-only filtering if requested
+    if outdoor_only:
+        def load_workbook_outdoor_v2(self):
+            games, team_games, odds = original_load_v2(self)
+            if "is_indoor" in games.columns:
+                games = games[games["is_indoor"] == 0].copy()
+                team_games = team_games[team_games["game_id"].isin(games["game_id"])].copy()
+                if "game_id" in odds.columns:
+                    odds = odds[odds["game_id"].isin(games["game_id"])].copy()
+            return games, team_games, odds
+        V2Model.load_workbook = load_workbook_outdoor_v2
     
     def _candidate_features_no_weather(team_games: pd.DataFrame) -> list:
         candidates = [
@@ -74,19 +87,6 @@ def train_v3_without_weather(workbook_path: str, train_through_week: int, outdoo
     # Monkey-patch temporarily (remove @staticmethod wrapper)
     V3Model._candidate_features = staticmethod(_candidate_features_no_weather)
 
-    # Optional: filter to outdoor games only by patching load_workbook
-    original_load_v3 = V3Model.load_workbook
-    if outdoor_only:
-        def load_workbook_outdoor(self):
-            games, team_games, odds = original_load_v3(self)
-            if "is_indoor" in games.columns:
-                games = games[games["is_indoor"] == 0].copy()
-                team_games = team_games[team_games["game_id"].isin(games["game_id"])].copy()
-                if "game_id" in odds.columns:
-                    odds = odds[odds["game_id"].isin(games["game_id"])].copy()
-            return games, team_games, odds
-        V3Model.load_workbook = load_workbook_outdoor
-
     try:
         model = V3Model(workbook_path=workbook_path, window=8, model_type="randomforest")
         report = model.fit(train_through_week=train_through_week)
@@ -94,7 +94,7 @@ def train_v3_without_weather(workbook_path: str, train_through_week: int, outdoo
         # Restore original methods
         V3Model._candidate_features = original_method
         if outdoor_only:
-            V3Model.load_workbook = original_load_v3
+            V2Model.load_workbook = original_load_v2
     
     return report
 

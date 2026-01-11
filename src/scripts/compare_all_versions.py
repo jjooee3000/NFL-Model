@@ -13,9 +13,9 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from utils.paths import DATA_DIR
-from models.model_v0 import NFLHybridModelV0 as V0Model
-from models.model_v1 import NFLHybridModelV1 as V1Model
-from models.model_v2 import NFLHybridModelV2 as V2Model
+from models.archive.model_v0 import NFLHybridModelV0 as V0Model
+from models.archive.model_v1 import NFLHybridModelV1 as V1Model
+from models.archive.model_v2 import NFLHybridModelV2 as V2Model
 from models.model_v3 import NFLHybridModelV3 as V3Model
 from models.model_v4 import NFLModelV4 as V4Model
 

@@ -19,7 +19,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from utils.paths import DATA_DIR, REPORTS_DIR, ensure_dir  # noqa: E402
-from models.model_v2 import NFLHybridModelV2 as V2Model  # noqa: E402
+from models.archive.model_v2 import NFLHybridModelV2 as V2Model  # noqa: E402
 from models.model_v3 import NFLHybridModelV3 as V3Model  # noqa: E402
 
 

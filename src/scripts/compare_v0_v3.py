@@ -12,7 +12,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from utils.paths import DATA_DIR, REPORTS_DIR, ensure_dir
-from models.model_v0 import NFLHybridModelV0 as V0Model
+from models.archive.model_v0 import NFLHybridModelV0 as V0Model
 from models.model_v3 import NFLHybridModelV3 as V3Model
 
 import argparse

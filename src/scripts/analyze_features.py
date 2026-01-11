@@ -15,7 +15,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from utils.paths import DATA_DIR, OUTPUTS_DIR, ensure_dir
-from models.model_v2 import NFLHybridModelV2
+from models.archive.model_v2 import NFLHybridModelV2
 
 try:
     import matplotlib.pyplot as plt

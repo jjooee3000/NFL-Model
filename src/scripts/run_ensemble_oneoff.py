@@ -8,7 +8,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from utils.paths import DATA_DIR
-from models.model_v0 import fetch_market_data_from_odds_api, ensemble_predict_game
+from models.archive.model_v0 import fetch_market_data_from_odds_api, ensemble_predict_game
 
 API_KEY = "e4fe23404e83e54cae3a61eff5772094"
 HOME = "CHI"

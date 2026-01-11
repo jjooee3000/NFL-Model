@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import argparse
+import re
 import pandas as pd
 from datetime import datetime
 from models.model_v3 import NFLHybridModelV3
@@ -36,6 +37,8 @@ def main():
     parser.add_argument("--output", type=str,
                        default="outputs/prediction_log.csv",
                        help="Path to prediction log")
+    parser.add_argument("--playoffs", action="store_true",
+                        help="Predict only playoff games among targets (game_id like 'YYYY_RR_AAA_BBB')")
     args = parser.parse_args()
     
     workbook_path = Path(args.workbook)
@@ -56,13 +59,21 @@ def main():
         (games_df["is_prediction_target"] == 1) & 
         (games_df["week"] == args.week)
     ]
+
+    # If playoffs flag is set, filter to playoff-format game_ids (e.g., 2025_01_GNB_CHI)
+    if args.playoffs:
+        if "game_id" not in target_games.columns:
+            print("Error: game_id column missing; cannot filter playoffs.")
+            sys.exit(1)
+        playoff_mask = target_games["game_id"].astype(str).str.match(r"^\d{4}_\d{2}_.+")
+        target_games = target_games[playoff_mask]
     
     if target_games.empty:
         print(f"No prediction targets found for week {args.week}.")
         print("Run: python src/scripts/fetch_upcoming_games.py --week {args.week}")
         sys.exit(1)
     
-    print(f"\nFound {len(target_games)} game(s) to predict for week {args.week}:")
+    print(f"\nFound {len(target_games)} game(s) to predict for week {args.week}{' (playoffs only)' if args.playoffs else ''}:")
     for _, game in target_games.iterrows():
         print(f"  {game['away_team']} @ {game['home_team']}")
     
@@ -74,6 +85,7 @@ def main():
         pred_log = pd.read_csv(output_path)
     else:
         pred_log = pd.DataFrame()
+    run_entries = []
     
     # Run predictions for each variant
     for variant in args.variants:
@@ -154,7 +166,9 @@ def main():
                     "tuned_params": 1 if rf_params else 0,
                 }
                 
-                pred_log = pd.concat([pred_log, pd.DataFrame([log_entry])], ignore_index=True)
+                entry_df = pd.DataFrame([log_entry])
+                pred_log = pd.concat([pred_log, entry_df], ignore_index=True)
+                run_entries.append(log_entry)
                 
                 print(f"    Margin (home): {prediction['pred_margin_home']:+.1f}")
                 print(f"    Spread (away): {prediction['pred_spread_away']:+.1f}")
@@ -172,6 +186,13 @@ def main():
     pred_log.to_csv(output_path, index=False)
     print(f"✅ {len(pred_log)} total predictions logged")
     
+    # If playoffs-only, also save a separate file with just this run's entries
+    if args.playoffs:
+        ts = datetime.now().strftime("%Y-%m-%d")
+        playoffs_out = Path(f"outputs/predictions_playoffs_week{args.week}_{ts}.csv")
+        pd.DataFrame(run_entries).to_csv(playoffs_out, index=False)
+        print(f"\n🗂 Saved playoffs-only predictions to {playoffs_out}")
+
     print(f"\n📊 Latest predictions:")
     latest = pred_log.tail(len(target_games) * len(args.variants))
     print(latest[["game_id", "variant", "pred_spread_away", "pred_total"]].to_string(index=False))

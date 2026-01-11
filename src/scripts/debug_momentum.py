@@ -13,7 +13,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from utils.paths import DATA_DIR
-from models.model_v2 import NFLHybridModelV2
+from models.archive.model_v2 import NFLHybridModelV2
 
 workbook = DATA_DIR / "nfl_2025_model_data_with_moneylines.xlsx"
 model = NFLHybridModelV2(workbook_path=workbook, model_type='randomforest')

@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models.model_v2 import NFLHybridModelV2 as V2Model
+from models.archive.model_v2 import NFLHybridModelV2 as V2Model
 from models.model_v3 import NFLHybridModelV3 as V3Model
 import pandas as pd
 
