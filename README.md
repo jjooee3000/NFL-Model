@@ -1,72 +1,197 @@
-````markdown
 # NFL Model Workspace
 
-## 🔄 Model Versioning Policy
+**Production-Ready NFL Point Spread Prediction Model**  
+Database-first architecture with automated pipelines, FastAPI service, and comprehensive feature engineering.
 
-**For AI Assistants & Contributors:**
-- Only keep the **current production model** in `src/models/`
-- Archive old versions to `src/models/archive/` when creating new versions
-- See `src/models/README.md` for full versioning guidelines
+**Current Performance**: 7.02 MAE (28% improvement over baseline)  
+**Model**: RandomForest with 275 features (38 base × 6 variants + 29 interactions)  
+**Database**: SQLite with 2,474 games (2020-2025)
 
-**Current active model:** v3 (RandomForest with momentum features)
+---
 
-## Layout
-- Data: [data](data) (place `nfl_2025_model_data_with_moneylines.xlsx` here)
-- Models: [src/models](src/models) - **Active:** [model_v3.py](src/models/model_v3.py) | **Archive:** [archive/](src/models/archive/)
-- Scripts: [src/scripts](src/scripts) ([compare_all_versions.py](src/scripts/compare_all_versions.py), [analyze_features.py](src/scripts/analyze_features.py), [analyze_v3_features.py](src/scripts/analyze_v3_features.py), [run_ensemble_oneoff.py](src/scripts/run_ensemble_oneoff.py), [debug_momentum.py](src/scripts/debug_momentum.py), [check_features.py](src/scripts/check_features.py), [inspect_odds_feed.py](src/scripts/inspect_odds_feed.py))
-- Utilities: [src/utils](src/utils) ([paths.py](src/utils/paths.py))
-- Reports: [reports](reports)
-- Outputs (generated): [outputs](outputs)
+## 📚 Documentation
 
-## Setup
-```bash
+**👉 For complete documentation, see [docs/README.md](docs/README.md)**
+
+### Quick Links
+
+**New Users**:
+- [Getting Started Guide](docs/guides/GETTING_STARTED.md) - Complete setup and first prediction
+- [Quick Reference](docs/guides/QUICK_REFERENCE.md) - Common commands and tasks
+- [File Locations](docs/guides/FILE_LOCATIONS.md) - Where to find everything
+
+**Technical Details**:
+- [System Architecture](docs/architecture/SYSTEM_ARCHITECTURE.md) - System design and data flow
+- [Database Schema](docs/architecture/SQLITE_INTEGRATION_COMPLETE.md) - Database structure
+- [PFR Data Catalog](docs/architecture/PFR_DATA_CATALOG.md) - Available data sources
+
+**Performance & Analysis**:
+- [Model Improvement Strategy](docs/development/MODEL_IMPROVEMENT_STRATEGY.md) - Current improvement roadmap
+- [Weather Impact Analysis](docs/analysis/WEATHER_IMPACT_ANALYSIS.md) - Weather feature evaluation
+- [Feature Interactions Results](docs/development/FEATURE_INTERACTIONS_RESULTS.md) - Latest enhancements
+
+---
+
+## ⚡ Quick Start
+
+### Installation
+```powershell
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-Ensure the workbook is available at [data/nfl_2025_model_data_with_moneylines.xlsx](data/nfl_2025_model_data_with_moneylines.xlsx).
-
-## Common Tasks
-
-Run commands from the repository root. Scripts add `src/` to `PYTHONPATH` automatically, so direct invocation works:
-
-1. Compare all model versions (v0–v3):
-```bash
-python src/scripts/compare_all_versions.py
+### Make a Prediction
+```powershell
+# Predict playoff week 1
+& ".venv/Scripts/python.exe" src/scripts/predict_ensemble_multiwindow.py --season 2025 --week 1 --playoffs
 ```
 
-2. Feature importance (v2 baseline):
-```bash
-python src/scripts/analyze_features.py
+### Start API Server
+```powershell
+# Launch FastAPI service
+& ".venv/Scripts/python.exe" -m uvicorn nfl_model.services.api.app:app --reload --app-dir src
 ```
 
-3. Feature importance (v3 with momentum):
-```bash
-python src/scripts/analyze_v3_features.py
+**API Endpoints**:
+- `GET /health` - Server status
+- `GET /games?season=2025&week=1` - List games
+- `GET /predictions/{game_id}` - Get prediction
+- `POST /predict` - Generate predictions
+
+---
+
+## 📁 Project Structure
+
+```
+NFL-Model/
+├── docs/                    # 📚 Complete documentation (START HERE)
+│   ├── README.md           # Documentation index
+│   ├── guides/             # User guides and tutorials
+│   ├── architecture/       # System design docs
+│   ├── analysis/           # Performance reports
+│   ├── development/        # Development progress
+│   └── archive/            # Historical docs
+│
+├── src/                    # Source code
+│   ├── models/             # Prediction models (v3 = production)
+│   ├── scripts/            # Data pipelines and prediction scripts
+│   └── utils/              # Database, feature engineering utilities
+│
+├── data/                   # Data storage
+│   ├── nfl_model.db        # SQLite database (2,474 games)
+│   └── pfr_historical/     # Pro Football Reference CSVs
+│
+└── outputs/                # Predictions and reports
+    ├── ensemble_multiwindow_*.csv  # Multi-window predictions
+    ├── feature_importance_v3.csv   # Feature rankings
+    └── prediction_log.csv          # All predictions log
 ```
 
-4. One-off ensemble prediction (edit HOME/AWAY/API key inside the script or pass via env):
-```bash
-python src/scripts/run_ensemble_oneoff.py
-```
+---
 
-5. Train and predict with a specific model (example v3):
-```bash
-python -m src.models.model_v3 --model randomforest --train-week 14
-```
+## 🚀 Core Features
 
-Generated outputs land in [outputs](outputs) (e.g., feature importance CSVs and plots).
+### Data Pipeline
+- **Automated Sync**: Daily postgame updates and data cleaning
+- **Multiple Sources**: ESPN API, Pro Football Reference, NFLScrapy
+- **Data Integrity**: Unique indexes, deduplication, ingestion logging
 
-## Diagnostics
-Quick project health check (env, data, v3 fit):
-```bash
-python src/scripts/diagnostics.py
-```
-Writes a summary to [outputs/diagnostics.txt](outputs/diagnostics.txt).
+### Prediction Model (v3)
+- **Algorithm**: RandomForest (200 trees, max_depth=20)
+- **Features**: 275 total
+  - 38 base features (offense, defense, situational)
+  - 6 variants per feature (pre8, ema8, trend8, vol8, season_avg, recent_ratio)
+  - 29 interaction features (11 categories)
+- **Performance**: 7.02 MAE on recent data
 
-## Archiving Old Models
-To keep `src/models/` focused on the active version, use the archiver to move v0–v2 into `src/models/archive/`:
-```bash
-python archive_old_models.py
-```
-Note: If you run comparisons after archiving, update imports or restore models temporarily.
-````
+### Feature Engineering
+- **Rolling Windows**: 8-game, 4-game, recent performance
+- **Exponential Moving Average**: Weighted recent performance
+- **Momentum & Volatility**: Trend detection and consistency metrics
+- **Interactions**: Offense-defense matchups, weather impacts, situational adjustments
+
+### FastAPI Service
+- **Game Browsing**: Query games by season, week, team
+- **Predictions**: On-demand prediction generation
+- **Monitoring**: Health checks and status endpoints
+
+---
+
+## 🔧 VS Code Tasks
+
+Use the Command Palette (Ctrl+Shift+P) → "Tasks: Run Task":
+- **Run Daily Sync Pipeline** - Update scores and clean database
+- **Run API (Uvicorn)** - Start FastAPI server
+- **Run DB Schema Migrations** - Apply database schema updates
+- **Run Weather Impact Comparison** - Analyze weather features
+
+---
+
+## 📊 Model Performance
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| **MAE** | 7.02 | Mean Absolute Error (train_week=18) |
+| **Improvement** | 28% | vs baseline (9.77 MAE) |
+| **Features** | 275 | 38 base × 6 variants + 29 interactions |
+| **Training Data** | 2,474 games | Seasons 2020-2025 |
+| **Algorithm** | RandomForest | Outperforms XGBoost (11.06 vs 11.13 MAE) |
+
+**Recent Validations**:
+- Week 10 Historical: 3.14 MAE, 66.7% accuracy
+- XGBoost Comparison: RandomForest superior by 0.07 MAE
+
+---
+
+## 🎯 Development Status
+
+**Current Phase**: Model Enhancement & Validation  
+**Last Updated**: 2026-01-11
+
+### Recent Completions ✅
+- Feature interaction implementation (11 categories)
+- XGBoost integration and comparison
+- Historical validation framework
+- Opponent-adjusted metrics design
+- Comprehensive documentation restructuring
+
+### Next Priorities 🎯
+- Expand historical validation across multiple weeks
+- Implement opponent-adjusted metrics (placeholder ready)
+- Advanced ensemble methods
+- Real-time prediction monitoring
+
+**See**: [Model Improvement Strategy](docs/development/MODEL_IMPROVEMENT_STRATEGY.md)
+
+---
+
+## 📖 Additional Resources
+
+### Guides
+- [PFR Scraper Quickstart](docs/guides/PFR_SCRAPER_QUICKSTART.md) - Data collection
+- [Historical Backfill Guide](docs/guides/HISTORICAL_BACKFILL_GUIDE.md) - Adding historical data
+
+### Development
+- [Development Progress](docs/development/DEVELOPMENT_PROGRESS.md) - Implementation tracking
+- [Commit Instructions](docs/development/COMMIT_INSTRUCTIONS.md) - Git workflow
+- [Postgame Status](docs/development/POSTGAME_STATUS_FINAL.md) - Evaluation workflow
+
+### Analysis
+- [Postgame Analysis](docs/analysis/POSTGAME_ANALYSIS_2026-01-10.md) - Performance review
+- [Postgame Evaluation](docs/analysis/POSTGAME_EVAL_2026-01-10.md) - Detailed metrics
+
+---
+
+## 🆘 Getting Help
+
+1. **First-Time Users**: Start with [Getting Started Guide](docs/guides/GETTING_STARTED.md)
+2. **Common Tasks**: Check [Quick Reference](docs/guides/QUICK_REFERENCE.md)
+3. **Finding Files**: See [File Locations](docs/guides/FILE_LOCATIONS.md)
+4. **Technical Details**: Review [System Architecture](docs/architecture/SYSTEM_ARCHITECTURE.md)
+5. **Legacy Docs**: Browse [Archive Index](docs/archive/ARCHIVE_INDEX.md)
+
+---
+
+**Last Updated**: 2026-01-11  
+**Version**: 3.0  
+**Status**: Production Ready

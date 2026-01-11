@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block content %}
+<section>
+  <h2>Health</h2>
+  <p>Status: {{ health.status }} | DB: {{ health.db }}</p>
+</section>
+<section>
+  <h2>Upcoming Games</h2>
+  <p>Source: {{ upcoming_source or 'unknown' }} | <a href="/upcoming">View JSON</a></p>
+  {% if upcoming and upcoming|length > 0 %}
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th><th>Matchup</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for g in upcoming %}
+      <tr>
+        <td>{{ g.date or 'TBD' }}</td>
+        <td>{{ g.name }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p>No upcoming games found in the next 7 days.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Predictions (Cached)</h2>
+  <p>Status: {{ pred_status }} | Count: {{ pred_count }}</p>
+  {% if pred_status == 'no-cache' %}
+  <p><strong>No predictions cached yet. Click "Run Predictions" below to generate predictions for upcoming games.</strong></p>
+  {% elif predictions and predictions|length > 0 %}
+  <table>
+    <thead>
+      <tr>
+        <th>Game</th><th>Timestamp</th><th>Margin (Home)</th><th>Total</th><th>WinProb (Home)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in predictions %}
+      <tr>
+        <td>{{ p.away_team }} @ {{ p.home_team }}</td>
+        <td>{{ p.timestamp }}</td>
+        <td>{{ '%.2f'|format(p.pred_margin_home or 0) }}</td>
+        <td>{{ '%.2f'|format(p.pred_total or 0) }}</td>
+        <td>{{ '%.3f'|format(p.pred_winprob_home or 0) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p>No predictions available. Click "Run Predictions" below to generate them.</p>
+  {% endif %}
+  <form method="post" action="/ui/refresh-upcoming" style="margin-top: 1rem;">
+    <button type="submit" style="padding: 0.75rem 1.5rem; font-size: 1.1rem; background-color: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer;">Run Predictions for Upcoming Games</button>
+    <p style="font-size: 0.9rem; color: #666; margin-top: 0.5rem;"><em>Note: This may take 1-2 minutes to complete.</em></p>
+  </form>
+</section>
+{% endblock %}

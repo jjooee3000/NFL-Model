@@ -18,9 +18,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import argparse
 import re
+import sqlite3
 import pandas as pd
 from datetime import datetime
 from models.model_v3 import NFLHybridModelV3
+from utils.paths import DATA_DIR
 
 
 def main():
@@ -42,38 +44,50 @@ def main():
     args = parser.parse_args()
     
     workbook_path = Path(args.workbook)
-    if not workbook_path.exists():
-        print(f"Error: Workbook not found at {workbook_path}")
-        sys.exit(1)
-    
-    # Load workbook
-    print(f"Loading workbook: {workbook_path}")
-    games_df = pd.read_excel(workbook_path, sheet_name="games")
-    
-    # Filter to prediction targets for specified week
-    if "is_prediction_target" not in games_df.columns:
-        print("Error: No is_prediction_target column found. Run fetch_upcoming_games.py first.")
-        sys.exit(1)
-    
-    target_games = games_df[
-        (games_df["is_prediction_target"] == 1) & 
-        (games_df["week"] == args.week)
-    ]
+
+    # Prefer SQLite for upcoming games if available; fallback to workbook targets
+    target_games = pd.DataFrame()
+    db_path = DATA_DIR / "nfl_model.db"
+    if db_path.exists():
+        try:
+            with sqlite3.connect(str(db_path)) as conn:
+                query = (
+                    "SELECT game_id, season, week, away_team, home_team "
+                    "FROM games "
+                    "WHERE week = ? AND (home_score IS NULL OR away_score IS NULL)"
+                )
+                target_games = pd.read_sql_query(query, conn, params=(args.week,))
+                source = "SQLite"
+        except Exception as e:
+            print(f"Warning: SQLite fetch failed ({e}); falling back to workbook targets.")
+            target_games = pd.DataFrame()
+
+    if target_games.empty:
+        if not workbook_path.exists():
+            print(f"Error: Neither SQLite nor workbook provided upcoming games (missing {workbook_path}).")
+            sys.exit(1)
+        print(f"Loading workbook: {workbook_path}")
+        games_df = pd.read_excel(workbook_path, sheet_name="games")
+        if "is_prediction_target" not in games_df.columns:
+            print("Error: No is_prediction_target column found. Run fetch_upcoming_games.py first.")
+            sys.exit(1)
+        target_games = games_df[
+            (games_df["is_prediction_target"] == 1) & 
+            (games_df["week"] == args.week)
+        ][[c for c in ["game_id","season","week","away_team","home_team"] if c in games_df.columns]]
+        source = "Workbook"
 
     # If playoffs flag is set, filter to playoff-format game_ids (e.g., 2025_01_GNB_CHI)
-    if args.playoffs:
-        if "game_id" not in target_games.columns:
-            print("Error: game_id column missing; cannot filter playoffs.")
-            sys.exit(1)
+    if args.playoffs and "game_id" in target_games.columns:
         playoff_mask = target_games["game_id"].astype(str).str.match(r"^\d{4}_\d{2}_.+")
         target_games = target_games[playoff_mask]
-    
+
     if target_games.empty:
-        print(f"No prediction targets found for week {args.week}.")
-        print("Run: python src/scripts/fetch_upcoming_games.py --week {args.week}")
+        print(f"No upcoming games found for week {args.week} from {source}.")
+        print(f"Run: python src/scripts/fetch_upcoming_games.py --week {args.week}")
         sys.exit(1)
     
-    print(f"\nFound {len(target_games)} game(s) to predict for week {args.week}{' (playoffs only)' if args.playoffs else ''}:")
+    print(f"\nFound {len(target_games)} game(s) to predict for week {args.week} from {source}{' (playoffs only)' if args.playoffs else ''}:")
     for _, game in target_games.iterrows():
         print(f"  {game['away_team']} @ {game['home_team']}")
     
@@ -180,18 +194,32 @@ def main():
                 print(f"    ❌ Error predicting game: {e}")
                 continue
     
-    # Save prediction log
+    # Save predictions to SQLite DB instead of CSV log
     print(f"\n{'='*70}")
-    print(f"Saving predictions to {output_path}...")
-    pred_log.to_csv(output_path, index=False)
-    print(f"✅ {len(pred_log)} total predictions logged")
+    db_path = DATA_DIR / "nfl_model.db"
+    try:
+        import sqlite3
+        with sqlite3.connect(str(db_path)) as conn:
+            # Write cumulative log to 'predictions' table
+            pred_log.to_sql('predictions', conn, if_exists='append', index=False)
+        print(f"✅ {len(pred_log)} total predictions logged to DB: {db_path}")
+    except Exception as e:
+        print(f"⚠️  Failed to write predictions to DB ({db_path}): {e}")
+        print(f"Fallback: saving to {output_path}")
+        pred_log.to_csv(output_path, index=False)
     
     # If playoffs-only, also save a separate file with just this run's entries
     if args.playoffs:
         ts = datetime.now().strftime("%Y-%m-%d")
-        playoffs_out = Path(f"outputs/predictions_playoffs_week{args.week}_{ts}.csv")
-        pd.DataFrame(run_entries).to_csv(playoffs_out, index=False)
-        print(f"\n🗂 Saved playoffs-only predictions to {playoffs_out}")
+        try:
+            # Also store this run's entries separately in DB for traceability
+            with sqlite3.connect(str(db_path)) as conn:
+                pd.DataFrame(run_entries).to_sql('predictions_runs', conn, if_exists='append', index=False)
+            print(f"\n🗂 Saved playoffs-only run entries to DB: {db_path} (table: predictions_runs)")
+        except Exception:
+            playoffs_out = Path(f"outputs/predictions_playoffs_week{args.week}_{ts}.csv")
+            pd.DataFrame(run_entries).to_csv(playoffs_out, index=False)
+            print(f"\n🗂 Saved playoffs-only predictions to {playoffs_out}")
 
     print(f"\n📊 Latest predictions:")
     latest = pred_log.tail(len(target_games) * len(args.variants))

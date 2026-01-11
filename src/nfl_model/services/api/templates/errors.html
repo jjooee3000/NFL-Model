@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Recent Errors</h2>
+<p>Total: {{ logs|length }}</p>
+<!-- Auto-refresh every 5 seconds -->
+<meta http-equiv="refresh" content="5">
+<table>
+  <thead>
+    <tr>
+      <th>ID</th><th>Timestamp (UTC)</th><th>Status</th><th>Method</th><th>Path</th><th>User-Agent</th><th>Detail</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in logs %}
+    <tr>
+      <td>{{ e.id }}</td>
+      <td>{{ e.ts }}</td>
+      <td>{{ e.status_code }}</td>
+      <td>{{ e.method }}</td>
+      <td>{{ e.path }}</td>
+      <td>{{ e.user_agent }}</td>
+      <td><pre class="detail">{{ e.detail }}</pre></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

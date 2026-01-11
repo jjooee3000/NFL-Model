@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Games (Season {{ season }}{% if week is not none %}, Week {{ week }}{% endif %})</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Game ID</th><th>Week</th><th>Away</th><th>Home</th><th>Away Score</th><th>Home Score</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for g in games %}
+    <tr>
+      <td>{{ g.game_id }}</td>
+      <td>{{ g.week }}</td>
+      <td>{{ g.away_team }}</td>
+      <td>{{ g.home_team }}</td>
+      <td>{{ g.away_score }}</td>
+      <td>{{ g.home_score }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Error</h2>
+<p>Status: {{ status }} | Code: {{ status_code }}</p>
+{% if detail %}
+<pre class="detail">{{ detail }}</pre>
+{% endif %}
+{% if stderr %}
+<h3>Traceback</h3>
+<pre class="stderr">{{ stderr }}</pre>
+{% endif %}
+{% if cmd %}
+<p>Command: {{ cmd }}</p>
+{% endif %}
+{% endblock %}

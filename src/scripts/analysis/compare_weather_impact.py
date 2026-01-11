@@ -3,7 +3,7 @@ Compare v3 with weather features vs v3 without weather and v2.
 Measures the specific impact of weather data on prediction accuracy.
 
 Usage:
-    python src/scripts/compare_weather_impact.py [--train-week 14] [--outdoor-only]
+    python src/scripts/analysis/compare_weather_impact.py [--train-week 14] [--outdoor-only]
 """
 from __future__ import annotations
 

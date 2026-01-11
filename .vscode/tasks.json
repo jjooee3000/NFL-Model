@@ -2,15 +2,101 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
+			"label": "Run Ensemble Predictions (Playoffs)",
+			"type": "shell",
+			"command": "C:/Users/cahil/OneDrive/Desktop/Sports Model/NFL-Model/.venv/Scripts/python.exe",
+			"args": [
+				"src/scripts/predict_ensemble_multiwindow.py",
+				"--week",
+				"1",
+				"--playoffs"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		},
+		{
 			"label": "Run Weather Impact Comparison (Outdoor Only)",
 			"type": "shell",
-			"command": "powershell",
+			"command": "C:/Users/cahil/OneDrive/Desktop/Sports Model/NFL-Model/.venv/Scripts/python.exe",
 			"args": [
-				"-NoProfile",
-				"-ExecutionPolicy",
-				"Bypass",
-				"-Command",
-				"& 'C:/Users/cahil/OneDrive/Desktop/Sports Model/NFL-Model/.venv/Scripts/python.exe' 'src/scripts/compare_weather_impact.py' --train-week 14 --outdoor-only"
+				"src/scripts/analysis/compare_weather_impact.py",
+				"--train-week",
+				"14",
+				"--outdoor-only"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Clean SQLite DB (Include Logs)",
+			"type": "shell",
+			"command": "C:/Users/cahil/OneDrive/Desktop/Sports Model/NFL-Model/.venv/Scripts/python.exe",
+			"args": [
+				"src/scripts/clean_sqlite_db.py",
+				"--apply",
+				"--include-logs"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Clean SQLite DB (Audit Only)",
+			"type": "shell",
+			"command": "C:/Users/cahil/OneDrive/Desktop/Sports Model/NFL-Model/.venv/Scripts/python.exe",
+			"args": [
+				"src/scripts/clean_sqlite_db.py",
+				"--dry-run"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Run DB Schema Migrations",
+			"type": "shell",
+			"command": "C:/Users/cahil/OneDrive/Desktop/Sports Model/NFL-Model/.venv/Scripts/python.exe",
+			"args": [
+				"src/scripts/migrate_db_schema.py"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Run Daily Sync Pipeline",
+			"type": "shell",
+			"command": "C:/Users/cahil/OneDrive/Desktop/Sports Model/NFL-Model/.venv/Scripts/python.exe",
+			"args": [
+				"src/scripts/pipeline_daily_sync.py",
+				"--season",
+				"2025"
+			],
+			"group": "build"
+		}
+		,
+		{
+			"label": "Run API (Uvicorn)",
+			"type": "shell",
+			"command": "C:/Users/cahil/OneDrive/Desktop/Sports Model/NFL-Model/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"uvicorn",
+				"nfl_model.services.api.app:app",
+				"--reload",
+				"--app-dir",
+				"src"
+			],
+			"group": "build"
+		}
+		,
+		{
+			"label": "Run API (Uvicorn No Reload)",
+			"type": "shell",
+			"command": "C:/Users/cahil/OneDrive/Desktop/Sports Model/NFL-Model/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"uvicorn",
+				"nfl_model.services.api.app:app",
+				"--app-dir",
+				"src",
+				"--port",
+				"8001"
 			],
 			"group": "build"
 		}

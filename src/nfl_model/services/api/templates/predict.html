@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Predictions</h2>
+<p>Status: {{ status }} | Count: {{ count }}</p>
+{% if status != 'ok' %}
+<section class="error">
+  <h3>Error</h3>
+  <pre class="stderr">{{ stderr }}</pre>
+  <pre class="error">{{ error }}</pre>
+  {% if cmd %}
+  <p>Command: {{ cmd }}</p>
+  {% endif %}
+</section>
+{% else %}
+<pre class="stdout">{{ stdout }}</pre>
+<table>
+  <thead>
+    <tr>
+      <th>Game ID</th><th>Timestamp</th><th>pred_margin_home</th><th>pred_total</th><th>pred_winprob_home</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in predictions %}
+    <tr>
+      <td>{{ p.game_id }}</td>
+      <td>{{ p.timestamp }}</td>
+      <td>{{ '%.2f'|format(p.pred_margin_home or 0) }}</td>
+      <td>{{ '%.2f'|format(p.pred_total or 0) }}</td>
+      <td>{{ '%.3f'|format(p.pred_winprob_home or 0) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}
