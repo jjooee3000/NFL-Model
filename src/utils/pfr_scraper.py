@@ -14,7 +14,7 @@ import pandas as pd
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -441,6 +441,129 @@ class PFRScraper:
             return self._parse_stats_table(table)
         
         return pd.DataFrame()
+
+    def get_boxscore_basic(self, url: str) -> Dict[str, Any]:
+        """
+        Parse a PFR boxscore page for basic final results.
+        Returns dict with keys: season, date, away_team, home_team, away_score, home_score, boxscore_url
+        """
+        soup = self._get_page(url)
+        if not soup:
+            return {}
+
+        result: Dict[str, Any] = {"boxscore_url": url}
+
+        # Prefer parsing from scorebox (more consistent)
+        scorebox = soup.find('div', {'class': 'scorebox'})
+        if scorebox:
+            teams = []
+            scores = []
+            for team_div in scorebox.find_all('div'):  # iterate nested divs to find team blocks
+                # Look for link to team page
+                link = team_div.find('a')
+                score_div = team_div.find('div', {'class': 'score'})
+                if link and link.get('href', '').startswith('/teams/') and score_div:
+                    try:
+                        team_code = link.get('href').split('/')[2]
+                        wb_code = self.PFR_TO_WORKBOOK.get(team_code, team_code.upper())
+                        teams.append(wb_code)
+                        scores.append(int(score_div.get_text(strip=True)))
+                    except Exception:
+                        continue
+            if len(teams) >= 2 and len(scores) >= 2:
+                # Convention: first listed is away, second is home
+                result['away_team'] = teams[0]
+                result['home_team'] = teams[1]
+                result['away_score'] = scores[0]
+                result['home_score'] = scores[1]
+        # Fallback: scorebox may be inside HTML comments; parse comments
+        if 'away_team' not in result:
+            from bs4 import Comment
+            for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
+                csoup = BeautifulSoup(comment, 'html.parser')
+                scorebox = csoup.find('div', {'class': 'scorebox'})
+                if not scorebox:
+                    continue
+                teams = []
+                scores = []
+                for team_div in scorebox.find_all('div'):
+                    link = team_div.find('a')
+                    score_div = team_div.find('div', {'class': 'score'})
+                    if link and link.get('href', '').startswith('/teams/') and score_div:
+                        try:
+                            team_code = link.get('href').split('/')[2]
+                            wb_code = self.PFR_TO_WORKBOOK.get(team_code, team_code.upper())
+                            teams.append(wb_code)
+                            scores.append(int(score_div.get_text(strip=True)))
+                        except Exception:
+                            pass
+                if len(teams) >= 2 and len(scores) >= 2:
+                    result['away_team'] = teams[0]
+                    result['home_team'] = teams[1]
+                    result['away_score'] = scores[0]
+                    result['home_score'] = scores[1]
+                    break
+        # Fallback to linescore table
+        if ('away_team' not in result or result.get('away_score') is None) and soup.find('table', {'id': 'linescore'}):
+            linescore = soup.find('table', {'id': 'linescore'})
+            rows = linescore.find('tbody').find_all('tr') if linescore.find('tbody') else linescore.find_all('tr')
+            teams = []
+            scores = []
+            for tr in rows:
+                th = tr.find('th')
+                if not th:
+                    continue
+                link = th.find('a')
+                if not link or not link.get('href', '').startswith('/teams/'):
+                    continue
+                team_code = link.get('href').split('/')[2]
+                wb_code = self.PFR_TO_WORKBOOK.get(team_code, team_code.upper())
+                teams.append(wb_code)
+                # final score is last td
+                tds = tr.find_all('td')
+                if tds:
+                    try:
+                        scores.append(int(tds[-1].get_text(strip=True)))
+                    except Exception:
+                        scores.append(None)
+            if len(teams) >= 2 and len(scores) >= 2:
+                result['away_team'] = teams[0]
+                result['home_team'] = teams[1]
+                result['away_score'] = scores[0]
+                result['home_score'] = scores[1]
+
+        # Last resort: parse from page title "Visitor X at Home Y - ..."
+        if 'away_score' not in result or result.get('away_score') is None:
+            try:
+                import re
+                title = soup.find('title').get_text(strip=True)
+                m = re.search(r"^(.*?)\s+(\d+)\s+at\s+(.*?)\s+(\d+)", title)
+                if m:
+                    result['away_name'] = m.group(1)
+                    result['away_score'] = int(m.group(2))
+                    result['home_name'] = m.group(3)
+                    result['home_score'] = int(m.group(4))
+            except Exception:
+                pass
+
+        # Try to get date/season from meta
+        meta = soup.find('div', {'class': 'scorebox_meta'})
+        if meta:
+            # date in first li element
+            li = meta.find('li')
+            if li:
+                result['date'] = li.get_text(strip=True)
+
+        # Derive season from URL path like /boxscores/YYYYMMDDTEAM.htm
+        try:
+            path = url.split('/')[-1]
+            year = int(path[:4])
+            # playoffs in Jan belong to prior season
+            result['season'] = year if int(path[4:6]) >= 9 else year - 1
+        except Exception:
+            pass
+
+        return result
     
     def scrape_season_data(self, season: int = 2025, output_dir: Optional[Path] = None) -> Dict[str, pd.DataFrame]:
         """

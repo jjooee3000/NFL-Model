@@ -111,8 +111,8 @@ def main():
             rf_params = None
             stack = False
         
-        # Train model
-        model = NFLHybridModelV3(workbook_path=str(workbook_path), window=8, model_type="randomforest")
+        # Train model with full data (SQLite preferred for 2020-2025 + weather)
+        model = NFLHybridModelV3(workbook_path=str(workbook_path), window=8, model_type="randomforest", prefer_sqlite=True)
         fit_result = model.fit(
             train_through_week=args.train_through,
             rf_params_margin=rf_params,

@@ -58,10 +58,11 @@ class ModelArtifacts:
 class NFLHybridModelV3:
     """Enhanced model with working momentum features and expanded data sources."""
 
-    def __init__(self, workbook_path: str, window: int = 8, model_type: str = "randomforest") -> None:
+    def __init__(self, workbook_path: str, window: int = 8, model_type: str = "randomforest", prefer_sqlite: bool = True) -> None:
         self.workbook_path = workbook_path
         self.window = int(window)
         self.model_type = model_type.lower()
+        self.prefer_sqlite = prefer_sqlite
 
         if self.model_type not in ["ridge", "xgboost", "lightgbm", "randomforest"]:
             raise ValueError(f"Unknown model_type: {model_type}")
@@ -70,15 +71,20 @@ class NFLHybridModelV3:
         self._tg: Optional[pd.DataFrame] = None
         self._X_cols: Optional[List[str]] = None
         self._fit_report: Optional[Dict[str, Any]] = None
+        self._data_source: Optional[str] = None
 
     def load_workbook(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """Load data from SQLite (primary, full history) or Excel (fallback, 2025 only)."""
+        """Load data from SQLite (primary, full history) or Excel (fallback, 2025 only).
+        
+        If prefer_sqlite=True (default), will use SQLite when available for full 2020-2025 data + weather.
+        Falls back to Excel (2025 only) if SQLite unavailable or empty.
+        """
         import sqlite3
         
         db_path = PROJECT_ROOT / "data" / "nfl_model.db"
         
-        # Try SQLite first (has 2020-2025)
-        if db_path.exists():
+        # Try SQLite first if available and preferred (has 2020-2025 with weather)
+        if self.prefer_sqlite and db_path.exists():
             try:
                 conn = sqlite3.connect(db_path)
                 games = pd.read_sql_query("SELECT * FROM games", conn)
@@ -88,17 +94,21 @@ class NFLHybridModelV3:
                 
                 # Ensure required columns exist
                 required_games = {"game_id", "week", "home_team", "away_team", "home_score", "away_score"}
-                required_team_games = {"game_id", "team", "week"}
+                required_team_games = {"game_id", "team"}  # week comes from merge with games
                 if required_games.issubset(set(games.columns)) and required_team_games.issubset(set(team_games.columns)):
                     # SQLite has 2020-2025; Excel has only 2025
                     # Check if we have historical data (more than 300 games = more than current season)
                     if len(games) > 300:
                         # Use full historical data from SQLite
+                        self._data_source = f"SQLite ({len(games)} games, 2020-2025 with weather)"
+                        print(f"[SQLite] Loading: {len(games)} games spanning 2020-2025 with weather features")
                         return games, team_games, odds
             except Exception as e:
-                print(f"SQLite load failed ({e}), falling back to Excel")
+                print(f"[SQLite] Load failed ({e}), falling back to Excel")
         
         # Fallback to Excel (2025 current season only)
+        self._data_source = f"Excel ({self.workbook_path})"
+        print(f"[Excel] Loading (2025 season only): {self.workbook_path}")
         games = pd.read_excel(self.workbook_path, sheet_name="games")
         team_games = pd.read_excel(self.workbook_path, sheet_name="team_games")
         odds = pd.read_excel(self.workbook_path, sheet_name="odds")
@@ -109,10 +119,13 @@ class NFLHybridModelV3:
         g = games[["game_id", "week"]].copy()
         g["week"] = pd.to_numeric(g["week"], errors="coerce").astype("Int64")
         tg = team_games.merge(g, on="game_id", how="left", validate="many_to_one")
-        if "is_home (0/1)" in tg.columns:
-            tg["is_home (0/1)"] = pd.to_numeric(tg["is_home (0/1)"], errors="coerce").fillna(0).astype(int)
+        
+        # Handle both Excel and SQLite column naming conventions
+        is_home_col = "is_home (0/1)" if "is_home (0/1)" in tg.columns else "is_home_0_1"
+        if is_home_col in tg.columns:
+            tg["is_home (0/1)"] = pd.to_numeric(tg[is_home_col], errors="coerce").fillna(0).astype(int)
         else:
-            raise ValueError("team_games sheet missing required column: 'is_home (0/1)'")
+            raise ValueError("team_games sheet missing required column: 'is_home (0/1)' or 'is_home_0_1'")
         tg["week"] = pd.to_numeric(tg["week"], errors="coerce")
         return tg
 
@@ -293,15 +306,20 @@ class NFLHybridModelV3:
 
         games, team_games, odds = self.load_workbook()
 
-        g = games[["game_id", "week", "home_team", "away_team", "home_score", "away_score", "neutral_site (0/1)"]].copy()
-        g["week"] = pd.to_numeric(g["week"], errors="coerce").astype(int)
-        g["neutral_site (0/1)"] = pd.to_numeric(g["neutral_site (0/1)"], errors="coerce").fillna(0).astype(int)
+        # Handle both Excel and SQLite column naming conventions
+        neutral_col = "neutral_site (0/1)" if "neutral_site (0/1)" in games.columns else "neutral_site_0_1"
+        is_home_col = "is_home (0/1)" if "is_home (0/1)" in team_games.columns else "is_home_0_1"
+        
+        g = games[["game_id", "week", "home_team", "away_team", "home_score", "away_score", neutral_col]].copy()
+        g["week"] = pd.to_numeric(g["week"], errors="coerce").fillna(0).astype(int)
+        g["neutral_site (0/1)"] = pd.to_numeric(g[neutral_col], errors="coerce").fillna(0).astype(int)
         g["margin_home"] = g["home_score"] - g["away_score"]
         g["total_points"] = g["home_score"] + g["away_score"]
         g["home_win"] = (g["margin_home"] > 0).astype(int)
 
-        tg = team_games.merge(g[["game_id", "week"]], on="game_id", how="left", validate="many_to_one")
-        tg["is_home (0/1)"] = pd.to_numeric(tg["is_home (0/1)"], errors="coerce").fillna(0).astype(int)
+        # For SQLite data, week info is in games table, need to merge carefully
+        tg = team_games.merge(g[["game_id", "week"]], on="game_id", how="left")
+        tg["is_home (0/1)"] = pd.to_numeric(tg[is_home_col], errors="coerce").fillna(0).astype(int)
 
         feats = self._candidate_features(tg)
 

@@ -33,7 +33,7 @@ print(f"Test: {len(test_games)} games (weeks 15+)")
 
 # Train model
 print("\nTraining v3 with weather features...")
-model = NFLHybridModelV3(workbook_path)
+model = NFLHybridModelV3(workbook_path, prefer_sqlite=True)
 result = model.fit(train_through_week=train_week, return_predictions=True)
 
 # Extract test performance from report

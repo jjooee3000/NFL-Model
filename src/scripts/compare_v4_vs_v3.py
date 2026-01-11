@@ -22,7 +22,7 @@ print("="*80 + "\n")
 results = []
 
 # v3
-m3 = NFLHybridModelV3(workbook_path=v3_workbook, model_type='randomforest')
+m3 = NFLHybridModelV3(workbook_path=v3_workbook, model_type='randomforest', prefer_sqlite=True)
 rep3 = m3.fit()
 results.append({
     'Version': 'V3',

@@ -69,7 +69,7 @@ else:
 try:
     from models.model_v3 import NFLHybridModelV3
     ensure_dir(OUTPUTS_DIR)
-    model = NFLHybridModelV3(workbook_path=str(wb_path), window=8, model_type="randomforest")
+    model = NFLHybridModelV3(workbook_path=str(wb_path), window=8, model_type="randomforest", prefer_sqlite=True)
     if wb_path.exists():
         print("\nFitting model_v3 for sanity (train through week 14)...")
         rpt = model.fit(train_through_week=14)
