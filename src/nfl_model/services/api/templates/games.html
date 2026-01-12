@@ -5,9 +5,30 @@
     <h2 style="margin:0;">Games (Season {{ season }}{% if week is not none %}, Week {{ week }}{% endif %})</h2>
     <div style="display:flex;align-items:center;gap:0.5rem;">
       <button id="sync-postgame" class="btn">Sync Postgame Scores</button>
-      <span id="sync-status" style="color:var(--muted);"></span>
+      <div id="sync-status-container" style="display:none;">
+        <div class="sync-status-indicator">
+          <div class="sync-spinner"></div>
+          <span id="sync-status-text"></span>
+        </div>
+      </div>
     </div>
   </div>
+  
+  <!-- Pagination Controls -->
+  <div class="pagination-controls" style="margin: 1rem 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+    <div class="pagination-info" style="color: var(--muted);">
+      Page {{ page }} • Showing {{ games|length }} games
+    </div>
+    <div class="pagination-buttons" style="display: flex; gap: 0.5rem;">
+      {% if has_prev %}
+        <a href="?season={{ season }}{% if week is not none %}&week={{ week }}{% endif %}&page={{ page - 1 }}" class="btn btn-secondary">← Previous</a>
+      {% endif %}
+      {% if has_next %}
+        <a href="?season={{ season }}{% if week is not none %}&week={{ week }}{% endif %}&page={{ page + 1 }}" class="btn btn-secondary">Next →</a>
+      {% endif %}
+    </div>
+  </div>
+
   <table>
     <thead>
       <tr>
@@ -35,35 +56,184 @@
       {% endfor %}
     </tbody>
   </table>
+  
+  <!-- Bottom Pagination -->
+  <div class="pagination-controls" style="margin-top: 1rem; display: flex; justify-content: center; gap: 0.5rem;">
+    {% if has_prev %}
+      <a href="?season={{ season }}{% if week is not none %}&week={{ week }}{% endif %}&page={{ page - 1 }}" class="btn btn-secondary">← Previous</a>
+    {% endif %}
+    {% if has_next %}
+      <a href="?season={{ season }}{% if week is not none %}&week={{ week }}{% endif %}&page={{ page + 1 }}" class="btn btn-secondary">Next →</a>
+    {% endif %}
+  </div>
 </section>
+
+<style>
+  .sync-status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.1));
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    animation: slideIn 0.3s ease-out;
+  }
+  
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateX(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  
+  .sync-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(59, 130, 246, 0.3);
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  
+  .sync-status-indicator.complete {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(59, 130, 246, 0.1));
+    border-color: rgba(34, 197, 94, 0.5);
+  }
+  
+  .sync-status-indicator.complete .sync-spinner {
+    display: none;
+  }
+  
+  .sync-status-indicator.complete::before {
+    content: "✓";
+    font-size: 1.2rem;
+    color: #22c55e;
+    font-weight: bold;
+  }
+  
+  .sync-status-indicator.error {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(251, 146, 60, 0.1));
+    border-color: rgba(239, 68, 68, 0.5);
+  }
+  
+  .sync-status-indicator.error .sync-spinner {
+    display: none;
+  }
+  
+  .sync-status-indicator.error::before {
+    content: "⚠";
+    font-size: 1.2rem;
+    color: #ef4444;
+    font-weight: bold;
+  }
+
+  .btn-secondary {
+    background: linear-gradient(135deg, rgba(100, 116, 139, 0.1), rgba(71, 85, 105, 0.1));
+    border: 1px solid rgba(100, 116, 139, 0.3);
+    color: var(--text);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+  
+  .btn-secondary:hover {
+    background: linear-gradient(135deg, rgba(100, 116, 139, 0.2), rgba(71, 85, 105, 0.2));
+    border-color: rgba(100, 116, 139, 0.5);
+    transform: translateY(-1px);
+  }
+  
+  .pagination-controls {
+    color: var(--muted);
+  }
+</style>
+
 <script>
   (function() {
     const btn = document.getElementById('sync-postgame');
-    const statusEl = document.getElementById('sync-status');
+    const statusContainer = document.getElementById('sync-status-container');
+    const statusIndicator = statusContainer?.querySelector('.sync-status-indicator');
+    const statusText = document.getElementById('sync-status-text');
+    let pollInterval = null;
+
     if (!btn) return;
 
+    function updateStatus(status, message) {
+      if (!statusIndicator || !statusText) return;
+      
+      statusText.textContent = message;
+      statusIndicator.className = 'sync-status-indicator';
+      
+      if (status === 'complete') {
+        statusIndicator.classList.add('complete');
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+        // Auto-refresh page after 2 seconds on complete
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      } else if (status === 'error') {
+        statusIndicator.classList.add('error');
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+      }
+    }
+
+    async function pollStatus() {
+      try {
+        const res = await fetch('/ui/sync-status');
+        const data = await res.json();
+        updateStatus(data.status, data.message || 'Syncing...');
+      } catch (e) {
+        console.error('Poll error:', e);
+      }
+    }
+
     btn.addEventListener('click', async () => {
-      statusEl.textContent = 'Starting…';
+      statusContainer.style.display = 'block';
+      updateStatus('running', 'Starting sync...');
       btn.disabled = true;
+      
       try {
         const body = new URLSearchParams();
         body.append('season', '{{ season }}');
         {% if week is not none %}
         body.append('week', '{{ week }}');
         {% endif %}
+        
         const res = await fetch('/ui/sync-postgame', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body,
         });
+        
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           throw new Error(err.detail || 'Failed to start sync');
         }
+        
         const data = await res.json();
-        statusEl.textContent = `Started (pid ${data.pid}). Logs: ${data.log}`;
+        updateStatus('running', 'Sync in progress...');
+        
+        // Start polling for status
+        pollInterval = setInterval(pollStatus, 2000);
+        
       } catch (e) {
-        statusEl.textContent = e.message || 'Error starting sync';
+        updateStatus('error', e.message || 'Error starting sync');
       } finally {
         btn.disabled = false;
       }
@@ -71,3 +241,4 @@
   })();
 </script>
 {% endblock %}
+

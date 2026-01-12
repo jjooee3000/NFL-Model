@@ -1,13 +1,101 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="cards">
+  <!-- Health Section -->
   <section class="card">
     <h2>Health</h2>
     <div class="meta">Service: <span class="pill {{ 'success' if health.status == 'ok' else 'warn' }}">{{ health.status }}</span></div>
     <div class="meta">DB: <span class="pill {{ 'success' if health.db == 'ok' else 'warn' }}">{{ health.db }}</span></div>
   </section>
 
-  <section class="card">
+  <!-- Featured Prediction -->
+  {% if featured_prediction %}
+  <section class="card" style="grid-column: 1 / -1; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+    <h2 style="color: white; font-size: 1.5rem; margin-bottom: 1rem;">🏈 Latest Model Prediction</h2>
+    <div style="background: rgba(255,255,255,0.1); padding: 1.5rem; border-radius: 8px; backdrop-filter: blur(10px);">
+      <div style="display: grid; grid-template-columns: 1fr auto 1fr; gap: 2rem; align-items: center; margin-bottom: 1rem;">
+        <div style="text-align: right;">
+          <div style="font-size: 2rem; font-weight: bold;">{{ featured_prediction.away_team }}</div>
+          <div style="font-size: 0.9rem; opacity: 0.9;">Away</div>
+        </div>
+        <div style="text-align: center; font-size: 1.5rem; opacity: 0.8;">@</div>
+        <div style="text-align: left;">
+          <div style="font-size: 2rem; font-weight: bold;">{{ featured_prediction.home_team }}</div>
+          <div style="font-size: 0.9rem; opacity: 0.9;">Home</div>
+        </div>
+      </div>
+      {% set margin = featured_prediction.pred_margin_home %}
+      {% set winner = featured_prediction.home_team if margin > 0 else featured_prediction.away_team %}
+      {% set spread = margin if margin > 0 else -margin %}
+      {% set total = featured_prediction.pred_total %}
+      {% set home_prob = (featured_prediction.pred_winprob_home * 100)|round(1) %}
+      {% set away_prob = (100 - home_prob)|round(1) %}
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 1.5rem; text-align: center;">
+        <div>
+          <div style="font-size: 0.85rem; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem;">Predicted Winner</div>
+          <div style="font-size: 1.8rem; font-weight: bold;">{{ winner }}</div>
+          <div style="font-size: 1.2rem; margin-top: 0.3rem;">-{{ '%.1f'|format(spread) }}</div>
+        </div>
+        <div>
+          <div style="font-size: 0.85rem; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem;">Projected Total</div>
+          <div style="font-size: 1.8rem; font-weight: bold;">{{ '%.1f'|format(total) }}</div>
+          <div style="font-size: 0.85rem; margin-top: 0.3rem; opacity: 0.8;">{{ '%.1f'|format(featured_prediction.pred_total_ci_lower) }} - {{ '%.1f'|format(featured_prediction.pred_total_ci_upper) }}</div>
+        </div>
+        <div>
+          <div style="font-size: 0.85rem; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem;">Win Probability</div>
+          <div style="font-size: 1.2rem; font-weight: bold;">{{ featured_prediction.home_team }}: {{ home_prob }}%</div>
+          <div style="font-size: 1.2rem; font-weight: bold; margin-top: 0.3rem;">{{ featured_prediction.away_team }}: {{ away_prob }}%</div>
+        </div>
+      </div>
+      <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.2); font-size: 0.85rem; opacity: 0.9; text-align: center;">
+        <strong>Ensemble Prediction:</strong> {{ featured_prediction.n_predictions }} predictions across {{ featured_prediction.n_windows }} training windows • 
+        Margin 95% CI: {{ '%.1f'|format(featured_prediction.pred_margin_ci_lower) }} to {{ '%.1f'|format(featured_prediction.pred_margin_ci_upper) }} • 
+        {% if featured_prediction['game_date_yyyy-mm-dd'] %}Game Date: {{ featured_prediction['game_date_yyyy-mm-dd'] }}{% endif %}
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- Model Performance Dashboard -->
+  <section class="card performance-card">
+    <h2>Model Performance</h2>
+    <div class="performance-grid">
+      <div class="perf-metric">
+        <div class="perf-value">{{ '%.1f'|format(model_performance.mae) if model_performance.mae else 'N/A' }}</div>
+        <div class="perf-label">Avg Error (pts)</div>
+      </div>
+      <div class="perf-metric">
+        <div class="perf-value {{ 'perf-good' if model_performance.accuracy and model_performance.accuracy >= 70 else 'perf-warn' if model_performance.accuracy and model_performance.accuracy >= 60 else 'perf-bad' }}">
+          {{ '%.0f'|format(model_performance.accuracy) if model_performance.accuracy else 'N/A' }}%
+        </div>
+        <div class="perf-label">Winner Accuracy</div>
+      </div>
+      <div class="perf-metric">
+        <div class="perf-value">{{ model_performance.correct_predictions }}/{{ model_performance.total_predictions }}</div>
+        <div class="perf-label">Recent Correct</div>
+      </div>
+    </div>
+    <div class="meta" style="margin-top: 0.5rem; text-align: center;">Based on last {{ model_performance.total_predictions }} completed games</div>
+  </section>
+
+  <!-- Today's Games -->
+  <section class="card" style="grid-column: 1 / -1;" id="todays-games-section">
+    <h2>Today's Games <span id="live-indicator" class="pill muted" style="display: none;">Live</span></h2>
+    <div class="meta" id="todays-games-meta">Loading games...</div>
+    <table id="todays-games-table">
+      <thead>
+        <tr>
+          <th>Time/Status</th><th>Matchup</th><th>Score</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="todays-games-body">
+        <tr><td colspan="4" style="text-align: center; color: var(--muted);">Loading...</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Upcoming Games -->
+  <section class="card" style="grid-column: 1 / -1;">
     <h2>Upcoming Games</h2>
     <div class="meta">Source: <span class="pill muted">{{ upcoming_source or 'unknown' }}</span> • <a href="/upcoming">View JSON</a></div>
     {% if upcoming and upcoming|length > 0 %}
@@ -32,6 +120,58 @@
     {% endif %}
   </section>
 
+  <!-- Recent Predictions Accuracy -->
+  {% if recent_predictions and recent_predictions|length > 0 %}
+  <section class="card" style="grid-column: 1 / -1;">
+    <h2>Recent Predictions & Accuracy</h2>
+    <div class="meta">Last {{ recent_predictions|length }} completed games with predictions</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th><th>Matchup</th><th>Predicted</th><th>Actual</th><th>Error</th><th>Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in recent_predictions %}
+        {% set pred_fav = p.home_team if p.pred_margin_home >= 0 else p.away_team %}
+        {% set pred_spread = p.pred_margin_home if p.pred_margin_home >= 0 else -p.pred_margin_home %}
+        {% set actual_fav = p.home_team if p.actual_margin >= 0 else p.away_team %}
+        {% set actual_spread = p.actual_margin if p.actual_margin >= 0 else -p.actual_margin %}
+        <tr class="{{ 'prediction-correct' if p.correct else 'prediction-incorrect' }}">
+          <td>{{ p['game_date_yyyy-mm-dd'] }}</td>
+          <td class="matchup">
+            <span class="tag away">Away</span>{{ p.away_team }} 
+            <span style="color: var(--muted);">@</span> 
+            <span class="tag home">Home</span>{{ p.home_team }}
+          </td>
+          <td>
+            <strong>{{ pred_fav }}</strong> -{{ '%.1f'|format(pred_spread) }}
+            <br><small style="color: var(--muted);">Total: {{ '%.1f'|format(p.pred_total) if p.pred_total else 'N/A' }}</small>
+          </td>
+          <td>
+            <strong>{{ actual_fav }}</strong> -{{ '%.1f'|format(actual_spread) }}
+            <br><small style="color: var(--muted);">Total: {{ '%.1f'|format(p.actual_total) }}</small>
+          </td>
+          <td>
+            <span class="error-badge {{ 'error-low' if p.error < 7 else 'error-medium' if p.error < 14 else 'error-high' }}">
+              {{ '%.1f'|format(p.error) }} pts
+            </span>
+          </td>
+          <td>
+            {% if p.correct %}
+              <span class="pill success">✓ Correct</span>
+            {% else %}
+              <span class="pill warn">✗ Wrong</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  <!-- Predictions for Upcoming Games -->
   <section class="card" style="grid-column: 1 / -1;">
     <h2>Predictions (Cached)</h2>
     <div class="meta">Status: <span class="pill {{ 'success' if pred_status == 'ok' else 'warn' if pred_status != 'no-cache' else 'muted' }}">{{ pred_status }}</span> • Count: {{ pred_count }}</div>
@@ -70,4 +210,233 @@
     </form>
   </section>
 </div>
+
+<style>
+  .performance-card {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(139, 92, 246, 0.05));
+    border: 1px solid rgba(59, 130, 246, 0.2);
+  }
+
+  .performance-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1rem;
+  }
+
+  .perf-metric {
+    text-align: center;
+  }
+
+  .perf-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1;
+  }
+
+  .perf-value.perf-good {
+    background: linear-gradient(135deg, #22c55e, #10b981);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .perf-value.perf-warn {
+    background: linear-gradient(135deg, #f59e0b, #eab308);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .perf-value.perf-bad {
+    background: linear-gradient(135deg, #ef4444, #f97316);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .perf-label {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-top: 0.25rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .prediction-correct {
+    background: rgba(34, 197, 94, 0.05);
+  }
+
+  .prediction-incorrect {
+    background: rgba(239, 68, 68, 0.05);
+  }
+
+  .error-badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+
+  .error-low {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+  }
+
+  .error-medium {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+  }
+
+  .error-high {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+  }
+
+  /* Live game indicator */
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  
+  .live-indicator {
+    animation: pulse 2s ease-in-out infinite;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white !important;
+    font-weight: bold;
+  }
+
+  .status-live {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  .status-final {
+    background: #3b82f6 !important;
+  }
+
+  .status-scheduled {
+    background: #6b7280 !important;
+  }
+</style>
+
+<script>
+  // Fetch and update today's games with live scores
+  async function updateTodaysGames() {
+    try {
+      const response = await fetch('/api/live-scores');
+      const data = await response.json();
+      
+      if (data.status === 'ok' && data.games && data.games.length > 0) {
+        const tbody = document.getElementById('todays-games-body');
+        const meta = document.getElementById('todays-games-meta');
+        const liveIndicator = document.getElementById('live-indicator');
+        
+        // Show warning if using database fallback
+        if (data.source === 'database-fallback') {
+          const warning = document.createElement('span');
+          warning.className = 'pill';
+          warning.style.background = '#f59e0b';
+          warning.style.marginLeft = '8px';
+          warning.textContent = '⚠ Live data unavailable';
+          if (!document.getElementById('fallback-warning')) {
+            warning.id = 'fallback-warning';
+            document.querySelector('#todays-games-section h2').appendChild(warning);
+          }
+        } else {
+          const existingWarning = document.getElementById('fallback-warning');
+          if (existingWarning) existingWarning.remove();
+        }
+        
+        // Filter games for today (either live, final from today, or scheduled for today)
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+        
+        const todaysGames = data.games.filter(g => {
+          const gameDate = g.date.split('T')[0];
+          // Include games from today or if they're currently live
+          return gameDate === todayStr || g.is_live;
+        });
+        
+        if (todaysGames.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--muted);">No games today</td></tr>';
+          meta.textContent = 'No games scheduled for today';
+          liveIndicator.style.display = 'none';
+          return;
+        }
+        
+        // Check if any games are live
+        const hasLiveGames = todaysGames.some(g => g.is_live);
+        if (hasLiveGames) {
+          liveIndicator.style.display = 'inline-block';
+          liveIndicator.className = 'pill live-indicator';
+        } else {
+          liveIndicator.style.display = 'none';
+        }
+        
+        meta.textContent = `${todaysGames.length} game(s) ${hasLiveGames ? '(LIVE updates)' : 'today'}`;
+        
+        // Build table rows
+        let html = '';
+        for (const game of todaysGames) {
+          const statusClass = game.state === 'in' ? 'status-live' : 
+                            game.state === 'post' ? 'status-final' : 'status-scheduled';
+          const statusText = game.state === 'in' ? 'LIVE' : 
+                           game.state === 'post' ? 'Final' : 'Scheduled';
+          
+          const timeDisplay = game.is_live ? game.clock : game.status_detail;
+          
+          // Add season type label
+          const seasonTypeLabel = game.season_type === 1 ? 'PRE' : 
+                                 game.season_type === 3 ? 'POST' : 'REG';
+          const seasonBadge = game.season_type === 3 ? 
+            `<span class="pill" style="background: #8b5cf6; font-size: 0.7rem; padding: 2px 6px; margin-left: 4px;">${seasonTypeLabel} W${game.week}</span>` : '';
+          
+          html += `
+            <tr ${game.is_live ? 'style="background: rgba(16, 185, 129, 0.05);"' : ''}>
+              <td style="font-size: 0.85rem;">${timeDisplay}</td>
+              <td class="matchup">
+                <span class="tag away">Away</span>${game.away_team} 
+                <span style="color: var(--muted);">@</span> 
+                <span class="tag home">Home</span>${game.home_team}
+                ${seasonBadge}
+              </td>
+              <td>
+                ${game.away_score || game.home_score ? 
+                  `<strong>${game.away_score} - ${game.home_score}</strong>` : 
+                  '<span style="color: var(--muted);">vs</span>'}
+              </td>
+              <td>
+                <span class="pill ${statusClass}">${statusText}</span>
+              </td>
+            </tr>
+          `;
+        }
+        
+        tbody.innerHTML = html;
+      } else {
+        document.getElementById('todays-games-body').innerHTML = 
+          '<tr><td colspan="4" style="text-align: center; color: var(--muted);">No live data available</td></tr>';
+      }
+    } catch (error) {
+      console.error('Error fetching live scores:', error);
+      document.getElementById('todays-games-body').innerHTML = 
+        '<tr><td colspan="4" style="text-align: center; color: var(--muted);">Error loading live scores</td></tr>';
+    }
+  }
+  
+  // Update on page load
+  updateTodaysGames();
+  
+  // Refresh every 30 seconds
+  setInterval(updateTodaysGames, 30000);
+</script>
+
 {% endblock %}

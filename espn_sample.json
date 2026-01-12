@@ -1,0 +1,589 @@
+{
+  "id": "401772978",
+  "uid": "s:20~l:28~e:401772978",
+  "date": "2026-01-12T01:15Z",
+  "name": "Los Angeles Chargers at New England Patriots",
+  "shortName": "LAC @ NE",
+  "season": {
+    "year": 2025,
+    "type": 3,
+    "slug": "post-season"
+  },
+  "week": {
+    "number": 1
+  },
+  "competitions": [
+    {
+      "id": "401772978",
+      "uid": "s:20~l:28~e:401772978~c:401772978",
+      "date": "2026-01-12T01:15Z",
+      "attendance": 0,
+      "type": {
+        "id": "1",
+        "abbreviation": "STD"
+      },
+      "timeValid": true,
+      "neutralSite": false,
+      "conferenceCompetition": false,
+      "playByPlayAvailable": true,
+      "recent": true,
+      "venue": {
+        "id": "3738",
+        "fullName": "Gillette Stadium",
+        "address": {
+          "city": "Foxborough",
+          "state": "MA",
+          "country": "USA"
+        },
+        "indoor": false
+      },
+      "competitors": [
+        {
+          "id": "17",
+          "uid": "s:20~l:28~t:17",
+          "type": "team",
+          "order": 0,
+          "homeAway": "home",
+          "team": {
+            "id": "17",
+            "uid": "s:20~l:28~t:17",
+            "location": "New England",
+            "name": "Patriots",
+            "abbreviation": "NE",
+            "displayName": "New England Patriots",
+            "shortDisplayName": "Patriots",
+            "color": "002a5c",
+            "alternateColor": "c60c30",
+            "isActive": true,
+            "venue": {
+              "id": "3738"
+            },
+            "links": [
+              {
+                "rel": [
+                  "clubhouse",
+                  "desktop",
+                  "team"
+                ],
+                "href": "https://www.espn.com/nfl/team/_/name/ne/new-england-patriots",
+                "text": "Clubhouse",
+                "isExternal": false,
+                "isPremium": false
+              },
+              {
+                "rel": [
+                  "roster",
+                  "desktop",
+                  "team"
+                ],
+                "href": "https://www.espn.com/nfl/team/roster/_/name/ne/new-england-patriots",
+                "text": "Roster",
+                "isExternal": false,
+                "isPremium": false
+              },
+              {
+                "rel": [
+                  "stats",
+                  "desktop",
+                  "team"
+                ],
+                "href": "https://www.espn.com/nfl/team/stats/_/name/ne/new-england-patriots",
+                "text": "Statistics",
+                "isExternal": false,
+                "isPremium": false
+              },
+              {
+                "rel": [
+                  "schedule",
+                  "desktop",
+                  "team"
+                ],
+                "href": "https://www.espn.com/nfl/team/schedule/_/name/ne",
+                "text": "Schedule",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/scoreboard/ne.png"
+          },
+          "score": "16",
+          "linescores": [
+            {
+              "value": 0.0,
+              "displayValue": "0",
+              "period": 1
+            },
+            {
+              "value": 6.0,
+              "displayValue": "6",
+              "period": 2
+            },
+            {
+              "value": 3.0,
+              "displayValue": "3",
+              "period": 3
+            },
+            {
+              "value": 7.0,
+              "displayValue": "7",
+              "period": 4
+            }
+          ],
+          "statistics": [],
+          "records": [
+            {
+              "name": "overall",
+              "abbreviation": "Any",
+              "type": "total",
+              "summary": "14-3"
+            },
+            {
+              "name": "Home",
+              "type": "home",
+              "summary": "6-3"
+            },
+            {
+              "name": "Road",
+              "type": "road",
+              "summary": "8-0"
+            }
+          ]
+        },
+        {
+          "id": "24",
+          "uid": "s:20~l:28~t:24",
+          "type": "team",
+          "order": 1,
+          "homeAway": "away",
+          "team": {
+            "id": "24",
+            "uid": "s:20~l:28~t:24",
+            "location": "Los Angeles",
+            "name": "Chargers",
+            "abbreviation": "LAC",
+            "displayName": "Los Angeles Chargers",
+            "shortDisplayName": "Chargers",
+            "color": "0080c6",
+            "alternateColor": "ffc20e",
+            "isActive": true,
+            "venue": {
+              "id": "538"
+            },
+            "links": [
+              {
+                "rel": [
+                  "clubhouse",
+                  "desktop",
+                  "team"
+                ],
+                "href": "https://www.espn.com/nfl/team/_/name/lac/los-angeles-chargers",
+                "text": "Clubhouse",
+                "isExternal": false,
+                "isPremium": false
+              },
+              {
+                "rel": [
+                  "roster",
+                  "desktop",
+                  "team"
+                ],
+                "href": "https://www.espn.com/nfl/team/roster/_/name/lac/los-angeles-chargers",
+                "text": "Roster",
+                "isExternal": false,
+                "isPremium": false
+              },
+              {
+                "rel": [
+                  "stats",
+                  "desktop",
+                  "team"
+                ],
+                "href": "https://www.espn.com/nfl/team/stats/_/name/lac/los-angeles-chargers",
+                "text": "Statistics",
+                "isExternal": false,
+                "isPremium": false
+              },
+              {
+                "rel": [
+                  "schedule",
+                  "desktop",
+                  "team"
+                ],
+                "href": "https://www.espn.com/nfl/team/schedule/_/name/lac",
+                "text": "Schedule",
+                "isExternal": false,
+                "isPremium": false
+              }
+            ],
+            "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/scoreboard/lac.png"
+          },
+          "score": "3",
+          "linescores": [
+            {
+              "value": 0.0,
+              "displayValue": "0",
+              "period": 1
+            },
+            {
+              "value": 3.0,
+              "displayValue": "3",
+              "period": 2
+            },
+            {
+              "value": 0.0,
+              "displayValue": "0",
+              "period": 3
+            },
+            {
+              "value": 0.0,
+              "displayValue": "0",
+              "period": 4
+            }
+          ],
+          "statistics": [],
+          "records": [
+            {
+              "name": "overall",
+              "abbreviation": "Any",
+              "type": "total",
+              "summary": "11-6"
+            },
+            {
+              "name": "Home",
+              "type": "home",
+              "summary": "6-3"
+            },
+            {
+              "name": "Road",
+              "type": "road",
+              "summary": "5-3"
+            }
+          ]
+        }
+      ],
+      "notes": [
+        {
+          "type": "event",
+          "headline": "AFC Wild Card Playoffs"
+        }
+      ],
+      "situation": {
+        "lastPlay": {
+          "id": "4017729783369",
+          "type": {
+            "id": "74",
+            "text": "Official Timeout",
+            "abbreviation": "Off TO"
+          },
+          "text": "Official Timeout at 05:39.",
+          "scoreValue": 0,
+          "team": {
+            "id": "24"
+          },
+          "probability": {
+            "tiePercentage": 0.0,
+            "homeWinPercentage": 0.9793,
+            "awayWinPercentage": 0.02070000000000005,
+            "secondsLeft": 0
+          },
+          "drive": {
+            "description": "3 plays, -5 yards, 2:29",
+            "start": {
+              "yardLine": 55,
+              "text": "LAC 45"
+            },
+            "end": {
+              "yardLine": 50,
+              "text": "50"
+            },
+            "timeElapsed": {
+              "displayValue": "2:29"
+            },
+            "result": "PUNT"
+          },
+          "start": {
+            "yardLine": 88,
+            "team": {
+              "id": "24"
+            }
+          },
+          "end": {
+            "yardLine": 88,
+            "team": {
+              "id": "24"
+            }
+          },
+          "statYardage": 0
+        },
+        "down": 1,
+        "yardLine": 88,
+        "distance": 10,
+        "downDistanceText": "1st & 10 at LAC 12",
+        "shortDownDistanceText": "1st & 10",
+        "possessionText": "LAC 12",
+        "isRedZone": false,
+        "homeTimeouts": 2,
+        "awayTimeouts": 3,
+        "possession": "24"
+      },
+      "status": {
+        "clock": 339.0,
+        "displayClock": "5:39",
+        "period": 4,
+        "type": {
+          "id": "2",
+          "name": "STATUS_IN_PROGRESS",
+          "state": "in",
+          "completed": false,
+          "description": "In Progress",
+          "detail": "5:39 - 4th Quarter",
+          "shortDetail": "5:39 - 4th"
+        },
+        "isTBDFlex": false
+      },
+      "broadcasts": [
+        {
+          "market": "national",
+          "names": [
+            "NBC",
+            "Peacock"
+          ]
+        }
+      ],
+      "leaders": [
+        {
+          "name": "passingYards",
+          "displayName": "Passing Leader",
+          "shortDisplayName": "PASS",
+          "abbreviation": "PYDS",
+          "leaders": [
+            {
+              "displayValue": "17/29, 268 YDS, 1 TD, 1 INT",
+              "value": 268.0,
+              "athlete": {
+                "id": "4431452",
+                "fullName": "Drake Maye",
+                "displayName": "Drake Maye",
+                "shortName": "D. Maye",
+                "links": [
+                  {
+                    "rel": [
+                      "playercard",
+                      "desktop",
+                      "athlete"
+                    ],
+                    "href": "https://www.espn.com/nfl/player/_/id/4431452/drake-maye"
+                  }
+                ],
+                "headshot": "https://a.espncdn.com/i/headshots/nfl/players/full/4431452.png",
+                "jersey": "10",
+                "position": {
+                  "abbreviation": "QB"
+                },
+                "team": {
+                  "id": "17"
+                },
+                "active": true
+              },
+              "team": {
+                "id": "17"
+              }
+            }
+          ]
+        },
+        {
+          "name": "rushingYards",
+          "displayName": "Rushing Leader",
+          "shortDisplayName": "RUSH",
+          "abbreviation": "RYDS",
+          "leaders": [
+            {
+              "displayValue": "7 CAR, 69 YDS",
+              "value": 69.0,
+              "athlete": {
+                "id": "4431452",
+                "fullName": "Drake Maye",
+                "displayName": "Drake Maye",
+                "shortName": "D. Maye",
+                "links": [
+                  {
+                    "rel": [
+                      "playercard",
+                      "desktop",
+                      "athlete"
+                    ],
+                    "href": "https://www.espn.com/nfl/player/_/id/4431452/drake-maye"
+                  }
+                ],
+                "headshot": "https://a.espncdn.com/i/headshots/nfl/players/full/4431452.png",
+                "jersey": "10",
+                "position": {
+                  "abbreviation": "QB"
+                },
+                "team": {
+                  "id": "17"
+                },
+                "active": true
+              },
+              "team": {
+                "id": "17"
+              }
+            }
+          ]
+        },
+        {
+          "name": "receivingYards",
+          "displayName": "Receiving Leader",
+          "shortDisplayName": "REC",
+          "abbreviation": "RECYDS",
+          "leaders": [
+            {
+              "displayValue": "3 REC, 75 YDS",
+              "value": 75.0,
+              "athlete": {
+                "id": "4569173",
+                "fullName": "Rhamondre Stevenson",
+                "displayName": "Rhamondre Stevenson",
+                "shortName": "R. Stevenson",
+                "links": [
+                  {
+                    "rel": [
+                      "playercard",
+                      "desktop",
+                      "athlete"
+                    ],
+                    "href": "https://www.espn.com/nfl/player/_/id/4569173/rhamondre-stevenson"
+                  }
+                ],
+                "headshot": "https://a.espncdn.com/i/headshots/nfl/players/full/4569173.png",
+                "jersey": "38",
+                "position": {
+                  "abbreviation": "RB"
+                },
+                "team": {
+                  "id": "17"
+                },
+                "active": true
+              },
+              "team": {
+                "id": "17"
+              }
+            }
+          ]
+        }
+      ],
+      "format": {
+        "regulation": {
+          "periods": 4
+        }
+      },
+      "startDate": "2026-01-12T01:15Z",
+      "broadcast": "NBC/Peacock",
+      "geoBroadcasts": [
+        {
+          "type": {
+            "id": "1",
+            "shortName": "TV"
+          },
+          "market": {
+            "id": "1",
+            "type": "National"
+          },
+          "media": {
+            "shortName": "NBC"
+          },
+          "lang": "en",
+          "region": "us"
+        },
+        {
+          "type": {
+            "id": "4",
+            "shortName": "Streaming"
+          },
+          "market": {
+            "id": "1",
+            "type": "National"
+          },
+          "media": {
+            "shortName": "Peacock"
+          },
+          "lang": "en",
+          "region": "us"
+        }
+      ],
+      "highlights": []
+    }
+  ],
+  "links": [
+    {
+      "language": "en-US",
+      "rel": [
+        "live",
+        "desktop",
+        "event"
+      ],
+      "href": "https://www.espn.com/nfl/game?gameId=401772978",
+      "text": "Gamecast",
+      "shortText": "Gamecast",
+      "isExternal": false,
+      "isPremium": false
+    },
+    {
+      "language": "en-US",
+      "rel": [
+        "boxscore",
+        "desktop",
+        "event"
+      ],
+      "href": "https://www.espn.com/nfl/boxscore/_/gameId/401772978",
+      "text": "Box Score",
+      "shortText": "Box Score",
+      "isExternal": false,
+      "isPremium": false
+    },
+    {
+      "language": "en-US",
+      "rel": [
+        "pbp",
+        "desktop",
+        "event"
+      ],
+      "href": "https://www.espn.com/nfl/playbyplay/_/gameId/401772978",
+      "text": "Play-by-Play",
+      "shortText": "Play-by-Play",
+      "isExternal": false,
+      "isPremium": false
+    }
+  ],
+  "weather": {
+    "displayValue": "33",
+    "temperature": 32,
+    "highTemperature": 32,
+    "conditionId": "Clear",
+    "link": {
+      "language": "en-US",
+      "rel": [
+        "02035"
+      ],
+      "href": "http://www.accuweather.com/en/us/gillette-stadium-ma/02035/current-weather/53587_poi?lang=en-us",
+      "text": "Weather",
+      "shortText": "Weather",
+      "isExternal": true,
+      "isPremium": false
+    }
+  },
+  "status": {
+    "clock": 339.0,
+    "displayClock": "5:39",
+    "period": 4,
+    "type": {
+      "id": "2",
+      "name": "STATUS_IN_PROGRESS",
+      "state": "in",
+      "completed": false,
+      "description": "In Progress",
+      "detail": "5:39 - 4th Quarter",
+      "shortDetail": "5:39 - 4th"
+    }
+  }
+}

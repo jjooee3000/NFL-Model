@@ -11,12 +11,13 @@ from pydantic import BaseModel
 import traceback
 import datetime
 import os
-from utils.team_codes import canonical_team, canonical_game_id, normalize_matchup_key
 
 # Add src directory to path for imports (ensure project imports work when launched via uvicorn)
-SRC_DIR = Path(__file__).resolve().parents[4]  # .../src
+SRC_DIR = Path(__file__).resolve().parents[3]  # .../src
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
+
+from utils.team_codes import canonical_team, canonical_game_id, normalize_matchup_key
 
 app = FastAPI(title="NFL Model API", version="0.1.0")
 
@@ -32,6 +33,56 @@ def get_conn():
     if not DB_PATH.exists():
         raise HTTPException(status_code=500, detail=f"DB not found: {DB_PATH}")
     return sqlite3.connect(str(DB_PATH))
+
+
+def get_live_scores_from_db():
+    """Fallback: Get today's games from database when ESPN API is unavailable"""
+    try:
+        import datetime
+        today = datetime.datetime.utcnow().strftime('%Y-%m-%d')
+        
+        with get_conn() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("""
+                SELECT game_id, away_team, home_team, away_score, home_score, 
+                       "game_date_yyyy-mm-dd", kickoff_time_local, seasontype, week
+                FROM games
+                WHERE "game_date_yyyy-mm-dd" BETWEEN date('now', '-1 day') AND date('now', '+1 day')
+                ORDER BY "game_date_yyyy-mm-dd"
+            """).fetchall()
+            
+            games = []
+            for r in rows:
+                game = {
+                    'short_name': f"{r['away_team']} @ {r['home_team']}",
+                    'name': f"{r['away_team']} at {r['home_team']}",
+                    'away_team': r['away_team'],
+                    'home_team': r['home_team'],
+                    'away_score': int(r['away_score']) if r['away_score'] else 0,
+                    'home_score': int(r['home_score']) if r['home_score'] else 0,
+                    'date': r['game_date_yyyy-mm-dd'],
+                    'state': 'post' if r['away_score'] else 'pre',
+                    'status': 'Final' if r['away_score'] else 'Scheduled',
+                    'status_detail': r['kickoff_time_local'] or 'TBD',
+                    'is_live': False,
+                    'season_type': r['seasontype'] or 2,
+                    'week': r['week'] or 0
+                }
+                games.append(game)
+            
+            return {
+                "status": "ok",
+                "source": "database-fallback",
+                "count": len(games),
+                "games": games,
+                "warning": "ESPN API unavailable, using database"
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Database fallback failed: {str(e)}",
+            "games": []
+        }
 
 
 def ensure_error_table():
@@ -168,6 +219,94 @@ def index(request: Request):
                 if row:
                     predictions.append(dict(row))
     
+    # Fetch recent predictions with actual results for performance tracking
+    recent_predictions = []
+    model_performance = {"mae": None, "accuracy": None, "total_predictions": 0, "correct_predictions": 0}
+    
+    # Get today's date to filter out ongoing games
+    today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    
+    with get_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        # Get recent 10 COMPLETED games (not today) with most recent prediction per game
+        # Use a subquery to get only the latest prediction per game_id
+        recent_rows = conn.execute("""
+            WITH LatestPredictions AS (
+                SELECT 
+                    ep.game_id, 
+                    ep.away_team, 
+                    ep.home_team, 
+                    ep.pred_margin_home, 
+                    ep.pred_total,
+                    ep.timestamp,
+                    ROW_NUMBER() OVER (PARTITION BY ep.game_id ORDER BY ep.timestamp DESC) as rn
+                FROM ensemble_predictions ep
+            )
+            SELECT 
+                lp.game_id, lp.away_team, lp.home_team, lp.pred_margin_home, lp.pred_total, 
+                lp.timestamp, g.away_score, g.home_score, g."game_date_yyyy-mm-dd"
+            FROM LatestPredictions lp
+            JOIN games g ON lp.game_id = g.game_id
+            WHERE lp.rn = 1
+                AND g.away_score IS NOT NULL 
+                AND g.home_score IS NOT NULL
+                AND g."game_date_yyyy-mm-dd" < ?
+            ORDER BY g."game_date_yyyy-mm-dd" DESC
+            LIMIT 10
+        """, (today,)).fetchall()
+        
+        errors = []
+        for row in recent_rows:
+            r = dict(row)
+            actual_margin = float(r["home_score"]) - float(r["away_score"])
+            pred_margin = float(r["pred_margin_home"]) if r["pred_margin_home"] else 0
+            error = abs(actual_margin - pred_margin)
+            errors.append(error)
+            
+            # Check if prediction was correct (same sign = correct winner)
+            correct = (actual_margin > 0 and pred_margin > 0) or (actual_margin < 0 and pred_margin < 0) or (actual_margin == 0 and abs(pred_margin) < 3)
+            
+            r["actual_margin"] = actual_margin
+            r["error"] = error
+            r["correct"] = correct
+            r["actual_total"] = float(r["home_score"]) + float(r["away_score"])
+            recent_predictions.append(r)
+        
+        if errors:
+            model_performance["mae"] = sum(errors) / len(errors)
+            model_performance["total_predictions"] = len(errors)
+            model_performance["correct_predictions"] = sum(1 for p in recent_predictions if p["correct"])
+            model_performance["accuracy"] = (model_performance["correct_predictions"] / model_performance["total_predictions"]) * 100 if model_performance["total_predictions"] > 0 else 0
+    
+    # Get featured prediction (latest ensemble prediction)
+    featured_prediction = None
+    with get_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        # Get the most recent ensemble prediction
+        featured_row = conn.execute("""
+            SELECT ep.*, g."game_date_yyyy-mm-dd", g.kickoff_time_local
+            FROM ensemble_predictions ep
+            LEFT JOIN games g ON ep.game_id = g.game_id
+            WHERE g.away_score IS NULL AND g.home_score IS NULL
+            ORDER BY ep.timestamp DESC
+            LIMIT 1
+        """).fetchone()
+        if featured_row:
+            featured_prediction = dict(featured_row)
+    
+    # Get today's games (current/happening now)
+    current_games = []
+    today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    with get_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        current_rows = conn.execute("""
+            SELECT game_id, away_team, home_team, away_score, home_score, "game_date_yyyy-mm-dd", kickoff_time_local
+            FROM games
+            WHERE "game_date_yyyy-mm-dd" = ?
+            ORDER BY kickoff_time_local
+        """, (today,)).fetchall()
+        current_games = [dict(r) for r in current_rows]
+    
     db_status = "ok" if DB_PATH.exists() else "missing"
     health = {"status": "ok", "db": db_status, "db_path": str(DB_PATH)}
     return templates.TemplateResponse(
@@ -181,6 +320,10 @@ def index(request: Request):
             "predictions": predictions,
             "pred_status": "ok" if predictions else "no-cache",
             "pred_count": len(predictions),
+            "current_games": current_games,
+            "recent_predictions": recent_predictions[:5],
+            "model_performance": model_performance,
+            "featured_prediction": featured_prediction,
         },
     )
 
@@ -193,6 +336,89 @@ def upcoming_json(days: int = 7):
         return {"status": "ok", "source": source, "count": len(games), "games": games}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upcoming fetch failed: {e}")
+
+
+@app.get("/api/live-scores")
+def live_scores():
+    """
+    Fetch live scores from ESPN scoreboard API for all NFL games.
+    Returns games with their current status (pre/in/post), scores, and game details.
+    Falls back to database if ESPN API is unavailable.
+    """
+    try:
+        import requests
+        
+        url = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code != 200:
+            # Fallback to database
+            return get_live_scores_from_db()
+        
+        data = response.json()
+        events = data.get('events', [])
+        
+        games = []
+        for event in events:
+            try:
+                status_info = event['status']['type']
+                state = status_info['state']  # pre, in, post
+                status_name = status_info['name']
+                status_detail = status_info['detail']
+                
+                comps = event['competitions'][0]['competitors']
+                away = next(c for c in comps if c['homeAway'] == 'away')
+                home = next(c for c in comps if c['homeAway'] == 'home')
+                
+                away_abbr = away['team']['abbreviation']
+                home_abbr = home['team']['abbreviation']
+                
+                # Apply canonical team code mapping
+                away_team = canonical_team(away_abbr)
+                home_team = canonical_team(home_abbr)
+                
+                game = {
+                    'name': event.get('name', ''),
+                    'short_name': event.get('shortName', ''),
+                    'date': event.get('date', ''),
+                    'state': state,
+                    'status': status_name,
+                    'status_detail': status_detail,
+                    'away_team': away_team,
+                    'home_team': home_team,
+                    'away_score': int(away.get('score', 0)),
+                    'home_score': int(home.get('score', 0)),
+                }
+                
+                # Extract quarter and clock info for live games
+                if state == 'in':
+                    game['is_live'] = True
+                    game['clock'] = status_detail  # e.g., "4:33 - 3rd Quarter"
+                else:
+                    game['is_live'] = False
+                
+                # Add season info
+                season_info = event.get('season', {})
+                week_info = event.get('week', {})
+                game['season_year'] = season_info.get('year', 0)
+                game['season_type'] = season_info.get('type', 0)  # 1=pre, 2=reg, 3=post
+                game['week'] = week_info.get('number', 0)
+                
+                games.append(game)
+            except Exception as e:
+                # Skip games that fail to parse
+                continue
+        
+        return {
+            "status": "ok",
+            "source": "espn-live",
+            "count": len(games),
+            "games": games
+        }
+        
+    except Exception as e:
+        # Fallback to database on any error
+        return get_live_scores_from_db()
 
 
 @app.post("/ui/refresh-upcoming")
@@ -342,8 +568,20 @@ def list_games(season: int, week: Optional[int] = None, limit: int = 300):
 
 
 @app.get("/ui/games")
-def ui_games(request: Request, season: int, week: Optional[int] = None, limit: int = 50):
+def ui_games(request: Request, season: Optional[int] = None, week: Optional[int] = None, page: int = 1, page_size: int = 50):
+    # Default to 2025 if no season specified (current season with games)
+    if season is None:
+        season = 2025
+    
+    # Calculate limit with pagination
+    limit = page * page_size
     games = list_games(season=season, week=week, limit=limit)
+    
+    # Paginate results
+    start_idx = (page - 1) * page_size
+    end_idx = page * page_size
+    paginated_games = games[start_idx:end_idx]
+    has_next = len(games) >= limit
 
     # Attach latest prediction per game and compute model miss vs actual
     with get_conn() as conn:
@@ -359,7 +597,7 @@ def ui_games(request: Request, season: int, week: Optional[int] = None, limit: i
             if key not in pred_map:
                 pred_map[key] = dict(row)
 
-    for g in games:
+    for g in paginated_games:
         pred = pred_map.get((g["away_team"], g["home_team"]), {})
         g["pred_margin_home"] = pred.get("pred_margin_home")
         g["pred_total"] = pred.get("pred_total")
@@ -379,7 +617,17 @@ def ui_games(request: Request, season: int, week: Optional[int] = None, limit: i
         else:
             g["model_miss"] = None
 
-    return templates.TemplateResponse("games.html", {"request": request, "games": games, "season": season, "week": week, "title": "Games"})
+    return templates.TemplateResponse("games.html", {
+        "request": request, 
+        "games": paginated_games, 
+        "season": season, 
+        "week": week, 
+        "title": "Games",
+        "page": page,
+        "page_size": page_size,
+        "has_next": has_next,
+        "has_prev": page > 1
+    })
 
 
 def get_error_logs(limit: int = 100):
@@ -569,3 +817,31 @@ def ui_sync_postgame(request: Request, season: int = Form(...), week: Optional[i
             pass
 
     return JSONResponse({"status": "started", "pid": proc.pid, "cmd": cmd, "log": str(log_path)})
+
+
+@app.get("/ui/sync-status")
+def ui_sync_status(request: Request):
+    """Poll sync status by reading last lines of log file"""
+    log_path = ROOT / "outputs" / "postgame_sync.log"
+    if not log_path.exists():
+        return JSONResponse({"status": "no_log", "message": "No sync log found"})
+    
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            last_lines = lines[-10:] if len(lines) > 10 else lines
+            last_text = "".join(last_lines)
+            
+            # Check for completion indicators
+            if "Updated" in last_text and "games" in last_text:
+                # Extract number if possible
+                import re
+                match = re.search(r"Updated (\d+) games", last_text)
+                count = int(match.group(1)) if match else 0
+                return JSONResponse({"status": "complete", "message": f"Synced {count} games", "count": count})
+            elif "ERROR" in last_text or "Error" in last_text:
+                return JSONResponse({"status": "error", "message": "Sync encountered an error"})
+            else:
+                return JSONResponse({"status": "running", "message": "Sync in progress..."})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)})
